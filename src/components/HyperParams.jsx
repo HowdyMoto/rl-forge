@@ -54,11 +54,11 @@ export default function HyperParams({ onChange, disabled }) {
       {PARAM_META.map(({ key, label, min, max, step, fmt, tooltip }) => (
         <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center' }}>
               {label}
               <Tooltip text={tooltip} />
             </span>
-            <span style={{ fontSize: 12, color: '#e2b96f' }}>{fmt(params[key])}</span>
+            <span style={{ fontSize: 13, color: '#e2b96f' }}>{fmt(params[key])}</span>
           </div>
           <input
             type="range"

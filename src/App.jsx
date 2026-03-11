@@ -76,7 +76,7 @@ const css = `
     --surface: rgba(255,255,255,0.03);
     --surface-hover: rgba(255,255,255,0.05);
     --border: rgba(255,255,255,0.07);
-    --text-dim: rgba(255,255,255,0.3);
+    --text-dim: rgba(255,255,255,0.5);
     --red: #e05a5a;
     --green: #4ade80;
   }
@@ -91,9 +91,9 @@ const css = `
   .panel-header {
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
-    font-size: 9px;
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.07em;
     color: var(--text-dim);
     display: flex;
     align-items: center;
@@ -151,8 +151,8 @@ const css = `
     border-bottom: 2px solid transparent;
     color: var(--text-dim);
     font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.08em;
+    font-size: 11px;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
     cursor: pointer;
     transition: all 0.15s;
@@ -173,10 +173,10 @@ const css = `
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 8px;
+    padding: 3px 9px;
     border-radius: 20px;
-    font-size: 9px;
-    letter-spacing: 0.06em;
+    font-size: 11px;
+    letter-spacing: 0.04em;
   }
 
   input[type=range] {
@@ -443,7 +443,7 @@ export default function App() {
                       {cfg.label}
                       <Tooltip text={cfg.tooltip} />
                     </span>
-                    <span style={{ fontSize: 8, display: 'block', marginTop: 1, opacity: 0.6 }}>
+                    <span style={{ fontSize: 10, display: 'block', marginTop: 2, opacity: 0.7 }}>
                       {cfg.desc}
                     </span>
                   </button>
@@ -594,7 +594,7 @@ export default function App() {
                   ◧ hyperparameters
                   <Tooltip text={TOOLTIPS.hyperparameters} />
                 </span>
-                <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)' }}>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
                   {isRunning ? 'LOCKED' : 'EDIT BEFORE TRAIN'}
                 </span>
               </div>
@@ -611,7 +611,7 @@ export default function App() {
                   <Tooltip text={TOOLTIPS.network} />
                 </span>
               </div>
-              <div style={{ padding: '12px 14px', fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.8, fontFamily: '"DM Mono", monospace' }}>
+              <div style={{ padding: '12px 14px', fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.8, fontFamily: '"DM Mono", monospace' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   Actor: {networkDesc.actor}
                   <Tooltip text={TOOLTIPS.actor} />
@@ -620,11 +620,11 @@ export default function App() {
                   Critic: same width → 1
                   <Tooltip text={TOOLTIPS.critic} />
                 </div>
-                <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.15)', fontSize: 9, lineHeight: 1.6, display: 'flex', alignItems: 'center' }}>
+                <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.45)', fontSize: 10, lineHeight: 1.6, display: 'flex', alignItems: 'center' }}>
                   obs: {networkDesc.obs}
                   <Tooltip text={TOOLTIPS.obs} />
                 </div>
-                <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: 9, display: 'flex', alignItems: 'center' }}>
+                <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, display: 'flex', alignItems: 'center' }}>
                   act: {networkDesc.actions}
                   <Tooltip text={TOOLTIPS.act} />
                 </div>
