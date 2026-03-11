@@ -3,12 +3,25 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from 'recharts'
+import InfoTooltip from './Tooltip.jsx'
 
 const CHART_DEFS = [
-  { key: 'meanReward20', label: 'Mean Reward (20 ep)', color: '#e2b96f', refLine: 'solvedThreshold' },
-  { key: 'policyLoss', label: 'Policy Loss', color: '#7c9bf5' },
-  { key: 'valueLoss', label: 'Value Loss', color: '#e06888' },
-  { key: 'entropy', label: 'Entropy', color: '#5ed8a5' },
+  {
+    key: 'meanReward20', label: 'Mean Reward (20 ep)', color: '#e2b96f', refLine: 'solvedThreshold',
+    tooltip: 'Rolling mean episode return over the last 20 episodes. Smoother than per-episode reward and the primary signal for training progress. The dashed line marks the solved threshold.\n\nRising: agent is learning. Plateaued: try adjusting learning rate or entropy coef. Crossing the target line means solved.',
+  },
+  {
+    key: 'policyLoss', label: 'Policy Loss', color: '#7c9bf5',
+    tooltip: "The clipped PPO surrogate objective (negated for minimization). Watch the trend, not the absolute value.\n\nNear zero: the clip bound is active — policy isn't changing much per update. Erratic spikes: learning rate may be too high.",
+  },
+  {
+    key: 'valueLoss', label: 'Value Loss', color: '#e06888',
+    tooltip: 'MSE between the critic\'s predicted V(s) and bootstrapped return targets. Measures how well the critic has learned to estimate future returns.\n\nHigher: critic is inaccurate — corrupts advantage estimates, which indirectly destabilizes policy updates. Lower: critic is reliable.',
+  },
+  {
+    key: 'entropy', label: 'Entropy', color: '#5ed8a5',
+    tooltip: 'Shannon entropy of the action distribution — how random the policy\'s decisions are.\n\nHigher: more exploratory. Lower: more deterministic. Gradual decay during training is healthy; sudden early collapse can signal getting stuck in a local optimum.',
+  },
 ]
 
 const MiniTooltip = ({ active, payload, label }) => {
@@ -114,15 +127,17 @@ export default function TrainingCharts({ metrics, solvedThreshold }) {
       height: '100%',
       background: 'rgba(255,255,255,0.04)',
     }}>
-      {CHART_DEFS.map(({ key, label, color, refLine }) => (
+      {CHART_DEFS.map(({ key, label, color, refLine, tooltip }) => (
         <div key={key} style={{ background: '#07070f', position: 'relative', minHeight: 0 }}>
           <div style={{
             position: 'absolute', top: 6, left: 10, zIndex: 1,
             fontSize: 9, color: 'rgba(255,255,255,0.25)',
             fontFamily: '"DM Mono", monospace',
             letterSpacing: '0.06em', textTransform: 'uppercase',
+            display: 'flex', alignItems: 'center',
           }}>
             {label}
+            <InfoTooltip text={tooltip} />
           </div>
           <div style={{ padding: '18px 2px 2px 2px', height: '100%', boxSizing: 'border-box' }}>
             <SmallChart

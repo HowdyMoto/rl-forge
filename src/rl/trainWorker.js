@@ -68,16 +68,20 @@ async function initEnv(envType) {
     return new CartPoleEnv()
   }
 
-  if (envType === 'hopper') {
-    // Must initialize Rapier WASM explicitly in worker context.
-    // Dynamic import ensures WASM isn't loaded for CartPole sessions.
-    const rapierModule = await import('@dimforge/rapier2d')
-    await rapierModule.default()
+  // All Rapier-based environments
+  const RAPIER_ENVS = {
+    hopper: () => import('../env/characters/hopper.js').then(m => m.HOPPER),
+    walker2d: () => import('../env/characters/walker2d.js').then(m => m.WALKER2D),
+    acrobot: () => import('../env/characters/acrobot.js').then(m => m.ACROBOT),
+  }
+
+  if (RAPIER_ENVS[envType]) {
+    await import('@dimforge/rapier2d')
     postMessage({ type: 'STATUS', msg: 'Rapier WASM ready' })
 
     const { RapierEnv } = await import('../env/rapierEnv.js')
-    const { HOPPER } = await import('../env/characters/hopper.js')
-    return new RapierEnv(HOPPER)
+    const charDef = await RAPIER_ENVS[envType]()
+    return new RapierEnv(charDef)
   }
 
   throw new Error(`Unknown env: ${envType}`)
@@ -100,8 +104,8 @@ async function runTraining(config) {
   let episodeReward = 0
   let episodeSteps = 0
   let episodeRewards = []
-  let frameTimer = 0
-  const RENDER_EVERY = 3  // send render data every N steps
+  let lastRenderTime = 0
+  const RENDER_INTERVAL_MS = 16  // ~60fps time-based throttle
 
   let obs = env.reset()
   postMessage({ type: 'STATUS', msg: 'Training started' })
@@ -110,17 +114,18 @@ async function runTraining(config) {
     while (paused && !stopped) await new Promise(r => setTimeout(r, 100))
     if (stopped) break
 
-    // For multi-action envs (hopper), use actMulti; for scalar (cartpole), use act
+    // Multi-action envs use actMulti; scalar (cartpole) uses act
+    const isMultiAction = env.actionSize > 1
     let actionForEnv, storedAction, value, logProb
 
-    if (envType === 'hopper') {
-      const result = agent.actMulti(obs)
+    if (isMultiAction) {
+      const result = await agent.actMulti(obs)
       actionForEnv = result.actions    // Float32Array
       storedAction = Array.from(result.actions)
       value = result.value
       logProb = result.logProb
     } else {
-      const result = agent.act(obs)
+      const result = await agent.act(obs)
       actionForEnv = result.action
       storedAction = result.action
       value = result.value
@@ -133,22 +138,22 @@ async function runTraining(config) {
     episodeReward += reward
     episodeSteps++
     totalSteps++
-    frameTimer++
 
-    // Render frame
-    if (frameTimer >= RENDER_EVERY) {
-      frameTimer = 0
-      if (envType === 'hopper') {
+    // Time-based render throttle (~60fps) instead of every N steps
+    const now = performance.now()
+    if (now - lastRenderTime >= RENDER_INTERVAL_MS) {
+      lastRenderTime = now
+      if (envType === 'cartpole') {
         postMessage({
-          type: 'RENDER_SNAPSHOT',
-          snapshot: env.getRenderSnapshot(),
+          type: 'RENDER_FRAME',
+          state: env.state,
           episodeReward,
           episodeSteps,
         })
       } else {
         postMessage({
-          type: 'RENDER_FRAME',
-          state: env.state,
+          type: 'RENDER_SNAPSHOT',
+          snapshot: env.getRenderSnapshot(),
           episodeReward,
           episodeSteps,
         })
@@ -206,7 +211,7 @@ async function runPlayback(config) {
     while (paused && !stopped) await new Promise(r => setTimeout(r, 100))
     if (stopped) break
 
-    const action = envType === 'hopper'
+    const action = env.actionSize > 1
       ? agent.actDeterministicMulti(obs)
       : agent.actDeterministic(obs)
 
@@ -214,17 +219,17 @@ async function runPlayback(config) {
     episodeReward += reward
     episodeSteps++
 
-    if (envType === 'hopper') {
+    if (envType === 'cartpole') {
       postMessage({
-        type: 'RENDER_SNAPSHOT',
-        snapshot: env.getRenderSnapshot(),
+        type: 'RENDER_FRAME',
+        state: env.state,
         episodeReward,
         episodeSteps,
       })
     } else {
       postMessage({
-        type: 'RENDER_FRAME',
-        state: env.state,
+        type: 'RENDER_SNAPSHOT',
+        snapshot: env.getRenderSnapshot(),
         episodeReward,
         episodeSteps,
       })

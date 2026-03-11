@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { HOPPER } from '../env/characters/hopper.js'
+import { WALKER2D } from '../env/characters/walker2d.js'
 
 const COLORS = {
   bg: '#07070f',
@@ -7,8 +7,12 @@ const COLORS = {
   groundLine: '#1e2040',
   gridLine: 'rgba(255,255,255,0.025)',
   torso: { fill: '#e2b96f', stroke: 'rgba(255,255,255,0.15)', glow: 'rgba(226,185,111,0.3)' },
-  thigh: { fill: '#c8a05a', stroke: 'rgba(255,255,255,0.1)' },
-  shin:  { fill: '#b08840', stroke: 'rgba(255,255,255,0.08)' },
+  // Left leg: blue-tinted gold
+  left_thigh: { fill: '#a0906f', stroke: 'rgba(255,255,255,0.1)' },
+  left_shin:  { fill: '#908060', stroke: 'rgba(255,255,255,0.08)' },
+  // Right leg: original warm gold
+  right_thigh: { fill: '#c8a05a', stroke: 'rgba(255,255,255,0.1)' },
+  right_shin:  { fill: '#b08840', stroke: 'rgba(255,255,255,0.08)' },
   joint: '#ff9966',
   contact: '#4ade80',
   velocity: 'rgba(226,185,111,0.5)',
@@ -71,7 +75,7 @@ function drawJointDot(ctx, sx, sy) {
   ctx.shadowBlur = 0
 }
 
-export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }) {
+export default function Walker2DRenderer({ snapshot, episodeReward, episodeSteps }) {
   const canvasRef = useRef(null)
   const cameraXRef = useRef(0)
   const [canvasSize, setCanvasSize] = useState({ w: 500, h: 300 })
@@ -104,7 +108,7 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
     // Dynamic ground position: 80% down the canvas
     const GSY = Math.round(H * 0.8)
 
-    // World → canvas transform (uses current canvas size)
+    // World -> canvas transform (uses current canvas size)
     const ws = (wx, wy, camX = 0) => ({
       sx: W / 2 + (wx - camX) * SCALE,
       sy: GSY - wy * SCALE,
@@ -170,7 +174,7 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
       return
     }
 
-    const def = HOPPER
+    const def = WALKER2D
 
     // Draw shadows first
     for (const bodyDef of def.bodies) {
@@ -187,12 +191,12 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
       ctx.fill()
     }
 
-    // Draw bodies
+    // Draw bodies (left leg first so right leg renders on top)
     for (const bodyDef of def.bodies) {
       const t = snapshot[bodyDef.id]
       if (!t) continue
       const { sx, sy } = ws(t.x, t.y, camX)
-      const colors = COLORS[bodyDef.id] || COLORS.shin
+      const colors = COLORS[bodyDef.id] || COLORS.right_shin
 
       if (bodyDef.shape === 'box') {
         drawBox(ctx, sx, sy, t.angle, bodyDef.w / 2, bodyDef.h / 2, colors)
@@ -218,11 +222,11 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
       drawJointDot(ctx, sx, sy)
     }
 
-    // Foot contact indicator
+    // Foot contact indicator (right shin only, due to single-sensor limitation)
     if (snapshot._footContact) {
-      const shin = snapshot.shin
-      if (shin) {
-        const { sx } = ws(shin.x, 0.05, camX)
+      const rightShin = snapshot.right_shin
+      if (rightShin) {
+        const { sx } = ws(rightShin.x, 0.05, camX)
         ctx.fillStyle = COLORS.contact
         ctx.shadowColor = COLORS.contact
         ctx.shadowBlur = 10

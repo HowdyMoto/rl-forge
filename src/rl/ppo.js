@@ -131,8 +131,8 @@ export class PPOAgent {
    * Get action and value for a single observation (inference).
    * Returns { action, value, logProb } all as plain JS numbers/arrays.
    */
-  act(obs) {
-    return tf.tidy(() => {
+  async act(obs) {
+    const tensors = tf.tidy(() => {
       const obsTensor = tf.tensor2d([obs])
       const mean = this.actor.predict(obsTensor)
       const std = tf.exp(this.logStd)
@@ -153,13 +153,33 @@ export class PPOAgent {
 
       const value = this.critic.predict(obsTensor)
 
+      // Keep tensors alive outside tidy so we can async-read them
       return {
-        action: action.dataSync()[0],
-        value: value.dataSync()[0],
-        logProb: logProb.dataSync()[0],
-        mean: mean.dataSync()[0],
+        action: action.clone(),
+        value: value.clone(),
+        logProb: logProb.clone(),
+        mean: mean.clone(),
       }
     })
+
+    const [actionData, valueData, logProbData, meanData] = await Promise.all([
+      tensors.action.data(),
+      tensors.value.data(),
+      tensors.logProb.data(),
+      tensors.mean.data(),
+    ])
+
+    tensors.action.dispose()
+    tensors.value.dispose()
+    tensors.logProb.dispose()
+    tensors.mean.dispose()
+
+    return {
+      action: actionData[0],
+      value: valueData[0],
+      logProb: logProbData[0],
+      mean: meanData[0],
+    }
   }
 
   /**
@@ -167,8 +187,8 @@ export class PPOAgent {
    * Returns { actions: Float32Array, value, logProb }
    * Each action element is tanh-squashed to [-1, 1].
    */
-  actMulti(obs) {
-    return tf.tidy(() => {
+  async actMulti(obs) {
+    const tensors = tf.tidy(() => {
       const obsTensor = tf.tensor2d([obs])
       const mean = this.actor.predict(obsTensor)
       const std = tf.exp(this.logStd)
@@ -185,11 +205,27 @@ export class PPOAgent {
       const value = this.critic.predict(obsTensor)
 
       return {
-        actions: new Float32Array(action.dataSync()),
-        value: value.dataSync()[0],
-        logProb: logProb.dataSync()[0],
+        action: action.clone(),
+        value: value.clone(),
+        logProb: logProb.clone(),
       }
     })
+
+    const [actionData, valueData, logProbData] = await Promise.all([
+      tensors.action.data(),
+      tensors.value.data(),
+      tensors.logProb.data(),
+    ])
+
+    tensors.action.dispose()
+    tensors.value.dispose()
+    tensors.logProb.dispose()
+
+    return {
+      actions: new Float32Array(actionData),
+      value: valueData[0],
+      logProb: logProbData[0],
+    }
   }
 
   /** Deterministic action for evaluation/rendering (no noise) — scalar */
@@ -214,21 +250,21 @@ export class PPOAgent {
 
   /** Load actor weights from an exported JSON object */
   importWeights(weightsObj) {
-    this.actor.trainableWeights.forEach(w => {
-      const data = weightsObj[w.name]
+    // Match by position-based keys (actor_0, actor_1, ...) to avoid
+    // TF.js auto-incremented name mismatches across PPOAgent instances.
+    this.actor.trainableWeights.forEach((w, i) => {
+      const key = `actor_${i}`
+      const data = weightsObj[key] ?? weightsObj[w.name]  // fallback for legacy exports
       if (data) {
-        const oldVal = w.val
-        w.val = tf.variable(tf.tensor(data, oldVal.shape), true, w.name)
-        oldVal.dispose()
+        const newTensor = tf.tensor(data, w.val.shape)
+        w.val.assign(newTensor)
+        newTensor.dispose()
       }
     })
     if (weightsObj['logStd']) {
-      const oldLogStd = this.logStd
-      this.logStd = tf.variable(
-        tf.tensor(weightsObj['logStd'], oldLogStd.shape),
-        true, 'logStd'
-      )
-      oldLogStd.dispose()
+      const newTensor = tf.tensor(weightsObj['logStd'], this.logStd.shape)
+      this.logStd.assign(newTensor)
+      newTensor.dispose()
     }
   }
 
@@ -277,10 +313,12 @@ export class PPOAgent {
     const oldLogProbTensor = tf.tensor1d(this.buffer.logProbs)
     const advTensor = tf.tensor1d(Array.from(advNorm))
 
-    let totalPolicyLoss = 0
-    let totalValueLoss = 0
-    let totalEntropyLoss = 0
+    // Accumulate loss tensors across minibatches — read once at the end
+    const lossAccum = { policy: [], value: [], entropy: [] }
     let updateCount = 0
+
+    // Pre-compute scalar constants for gradient clipping on GPU
+    const maxGradNormTensor = tf.scalar(cfg.maxGradNorm)
 
     // Multiple epochs over the buffer
     for (let epoch = 0; epoch < cfg.numEpochs; epoch++) {
@@ -299,11 +337,13 @@ export class PPOAgent {
         const mbOldLogProbs = tf.gather(oldLogProbTensor, mbIdxTensor)
         const mbAdvantages = tf.gather(advTensor, mbIdxTensor)
 
+        // Track individual losses outside the tidy so we can accumulate them
+        let mbPolicyLoss, mbValueLoss, mbEntropy
+
         const { grads, value: lossValue } = this.optimizer.computeGradients(() => {
           return tf.tidy(() => {
             // Actor forward pass
             const mean = this.actor.apply(mbObs)
-            const std = tf.exp(this.logStd)
 
             // Recompute log probs for current policy
             // Actions are stored post-tanh, so invert to get raw actions
@@ -340,31 +380,40 @@ export class PPOAgent {
               tf.neg(tf.mul(tf.scalar(cfg.entropyCoef), entropy))
             )
 
-            totalPolicyLoss += policyLoss.dataSync()[0]
-            totalValueLoss += valueLoss.dataSync()[0]
-            totalEntropyLoss += entropy.dataSync()[0]
-            updateCount++
+            // Keep loss tensors alive for deferred reading (no GPU sync here)
+            // tf.keep() prevents tf.tidy() from disposing these clones
+            mbPolicyLoss = tf.keep(policyLoss.clone())
+            mbValueLoss = tf.keep(valueLoss.clone())
+            mbEntropy = tf.keep(entropy.clone())
 
             return totalLoss
           })
         })
 
-        // Gradient clipping
-        const allVars = [...this.actor.trainableWeights.map(w => w.val),
-                         this.logStd,
-                         ...this.critic.trainableWeights.map(w => w.val)]
-        const clippedGrads = {}
-        const gradNorm = tf.tidy(() => {
-          const allGradVals = allVars.map(v => grads[v.name]).filter(Boolean)
-          if (allGradVals.length === 0) return 0
-          const norm = tf.sqrt(tf.addN(allGradVals.map(g => tf.sum(tf.square(g)))))
-          return norm.dataSync()[0]
-        })
+        lossAccum.policy.push(mbPolicyLoss)
+        lossAccum.value.push(mbValueLoss)
+        lossAccum.entropy.push(mbEntropy)
+        updateCount++
 
-        const scale = gradNorm > cfg.maxGradNorm ? cfg.maxGradNorm / gradNorm : 1.0
-        for (const [name, grad] of Object.entries(grads)) {
-          clippedGrads[name] = tf.mul(grad, scale)
-        }
+        // GPU-side gradient clipping — no CPU round-trip for the norm
+        const clippedGrads = tf.tidy(() => {
+          const allVars = [...this.actor.trainableWeights.map(w => w.val),
+                           this.logStd,
+                           ...this.critic.trainableWeights.map(w => w.val)]
+          const allGradVals = allVars.map(v => grads[v.name]).filter(Boolean)
+
+          if (allGradVals.length === 0) return {}
+
+          const gradNorm = tf.sqrt(tf.addN(allGradVals.map(g => tf.sum(tf.square(g)))))
+          // scale = min(maxGradNorm / gradNorm, 1.0) — entirely on GPU
+          const scale = tf.minimum(tf.div(maxGradNormTensor, tf.add(gradNorm, tf.scalar(1e-6))), tf.scalar(1.0))
+
+          const result = {}
+          for (const [name, grad] of Object.entries(grads)) {
+            result[name] = tf.mul(grad, scale)
+          }
+          return result
+        })
 
         this.optimizer.applyGradients(clippedGrads)
 
@@ -382,6 +431,8 @@ export class PPOAgent {
       }
     }
 
+    maxGradNormTensor.dispose()
+
     // Cleanup buffer tensors
     obsTensor.dispose()
     actionTensor.dispose()
@@ -392,10 +443,28 @@ export class PPOAgent {
     // Clear buffer
     this.buffer = { obs: [], actions: [], rewards: [], dones: [], values: [], logProbs: [] }
 
+    // Single async read of all accumulated losses (one GPU sync instead of 3×N)
+    const allLossData = await Promise.all([
+      ...lossAccum.policy.map(t => t.data()),
+      ...lossAccum.value.map(t => t.data()),
+      ...lossAccum.entropy.map(t => t.data()),
+    ])
+
+    // Dispose all accumulated loss tensors
+    ;[...lossAccum.policy, ...lossAccum.value, ...lossAccum.entropy].forEach(t => t.dispose())
+
+    const k = updateCount
+    let totalPolicyLoss = 0, totalValueLoss = 0, totalEntropyLoss = 0
+    for (let i = 0; i < k; i++) {
+      totalPolicyLoss += allLossData[i][0]
+      totalValueLoss += allLossData[k + i][0]
+      totalEntropyLoss += allLossData[2 * k + i][0]
+    }
+
     return {
-      policyLoss: totalPolicyLoss / Math.max(updateCount, 1),
-      valueLoss: totalValueLoss / Math.max(updateCount, 1),
-      entropy: totalEntropyLoss / Math.max(updateCount, 1),
+      policyLoss: totalPolicyLoss / Math.max(k, 1),
+      valueLoss: totalValueLoss / Math.max(k, 1),
+      entropy: totalEntropyLoss / Math.max(k, 1),
     }
   }
 
@@ -407,8 +476,8 @@ export class PPOAgent {
   async exportModel() {
     const blob = await new Promise(resolve => {
       const weights = {}
-      this.actor.trainableWeights.forEach(w => {
-        weights[w.name] = Array.from(w.val.dataSync())
+      this.actor.trainableWeights.forEach((w, i) => {
+        weights[`actor_${i}`] = Array.from(w.val.dataSync())
       })
       weights['logStd'] = Array.from(this.logStd.dataSync())
       resolve(new Blob([JSON.stringify(weights)], { type: 'application/json' }))

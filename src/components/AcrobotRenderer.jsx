@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { HOPPER } from '../env/characters/hopper.js'
+import { ACROBOT } from '../env/characters/acrobot.js'
 
 const COLORS = {
   bg: '#07070f',
   ground: '#0f0f1e',
   groundLine: '#1e2040',
   gridLine: 'rgba(255,255,255,0.025)',
-  torso: { fill: '#e2b96f', stroke: 'rgba(255,255,255,0.15)', glow: 'rgba(226,185,111,0.3)' },
-  thigh: { fill: '#c8a05a', stroke: 'rgba(255,255,255,0.1)' },
-  shin:  { fill: '#b08840', stroke: 'rgba(255,255,255,0.08)' },
-  joint: '#ff9966',
+  torso:  { fill: '#ffffff', stroke: 'rgba(255,255,255,0.3)', glow: 'rgba(255,255,255,0.4)' },
+  link1:  { fill: '#6fa8e2', stroke: 'rgba(255,255,255,0.15)' },
+  link2:  { fill: '#4a8fd4', stroke: 'rgba(255,255,255,0.12)' },
+  joint:  '#ff9966',
   contact: '#4ade80',
-  velocity: 'rgba(226,185,111,0.5)',
+  pivot:  'rgba(255,255,255,0.6)',
   shadow: 'rgba(0,0,0,0.5)',
 }
 
@@ -71,9 +71,8 @@ function drawJointDot(ctx, sx, sy) {
   ctx.shadowBlur = 0
 }
 
-export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }) {
+export default function AcrobotRenderer({ snapshot, episodeReward, episodeSteps }) {
   const canvasRef = useRef(null)
-  const cameraXRef = useRef(0)
   const [canvasSize, setCanvasSize] = useState({ w: 500, h: 300 })
 
   // Keep canvas pixel dimensions in sync with its display size
@@ -101,13 +100,17 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
     const W = canvas.width
     const H = canvas.height
 
-    // Dynamic ground position: 80% down the canvas
-    const GSY = Math.round(H * 0.8)
+    // Anchor position determines the viewport center — no camera follow
+    const camX = 0
 
-    // World → canvas transform (uses current canvas size)
-    const ws = (wx, wy, camX = 0) => ({
+    // Place the anchor pivot near 40% from the top so the pendulum has room to swing
+    const PIVOT_SCREEN_Y = Math.round(H * 0.35)
+    const ANCHOR_WORLD_Y = 2.0  // matches anchor spawnY
+
+    // World -> canvas transform (pivot-centered)
+    const ws = (wx, wy) => ({
       sx: W / 2 + (wx - camX) * SCALE,
-      sy: GSY - wy * SCALE,
+      sy: PIVOT_SCREEN_Y + (ANCHOR_WORLD_Y - wy) * SCALE,
     })
 
     ctx.clearRect(0, 0, W, H)
@@ -116,50 +119,17 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
     ctx.fillStyle = COLORS.bg
     ctx.fillRect(0, 0, W, H)
 
-    // Smooth camera follow torso x
-    if (snapshot?.torso) {
-      const targetCamX = snapshot.torso.x - 0.5
-      cameraXRef.current += (targetCamX - cameraXRef.current) * 0.08
-    }
-    const camX = cameraXRef.current
-
     // Grid (world-aligned)
     ctx.strokeStyle = COLORS.gridLine
     ctx.lineWidth = 1
     const gridStep = 1.0
-    const startX = Math.floor(camX - 3) * gridStep
-    for (let wx = startX; wx < camX + 5; wx += gridStep) {
-      const { sx } = ws(wx, 0, camX)
+    for (let wx = -3; wx <= 3; wx += gridStep) {
+      const { sx } = ws(wx, 0)
       ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke()
     }
-    for (let wy = 0; wy < 4; wy += gridStep) {
-      const { sy } = ws(0, wy, camX)
+    for (let wy = -1; wy <= 5; wy += gridStep) {
+      const { sy } = ws(0, wy)
       ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(W, sy); ctx.stroke()
-    }
-
-    // Ground
-    const groundGrad = ctx.createLinearGradient(0, GSY, 0, H)
-    groundGrad.addColorStop(0, '#131330')
-    groundGrad.addColorStop(1, '#070714')
-    ctx.fillStyle = groundGrad
-    ctx.fillRect(0, GSY, W, H - GSY)
-
-    ctx.strokeStyle = COLORS.groundLine
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(0, GSY)
-    ctx.lineTo(W, GSY)
-    ctx.stroke()
-
-    // Ground tick marks
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)'
-    ctx.lineWidth = 1
-    for (let wx = startX; wx < camX + 5; wx += 0.5) {
-      const { sx } = ws(wx, 0, camX)
-      ctx.beginPath()
-      ctx.moveTo(sx, GSY)
-      ctx.lineTo(sx, GSY + 5)
-      ctx.stroke()
     }
 
     if (!snapshot) {
@@ -170,20 +140,24 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
       return
     }
 
-    const def = HOPPER
+    const def = ACROBOT
 
-    // Draw shadows first
-    for (const bodyDef of def.bodies) {
-      const t = snapshot[bodyDef.id]
-      if (!t) continue
-      const { sx, sy: groundY } = ws(t.x, 0, camX)
-      const { sy } = ws(t.x, t.y, camX)
-      const shadowW = bodyDef.shape === 'box' ? bodyDef.w * SCALE * 0.7 : bodyDef.radius * SCALE * 2.5
-      const shadowH = 6
-      const opacity = Math.max(0, 0.4 - Math.abs(sy - groundY) * 0.003)
-      ctx.fillStyle = `rgba(0,0,0,${opacity})`
+    // Draw pivot indicator (small cross at the anchor point)
+    const anchor = snapshot.torso
+    if (anchor) {
+      const { sx, sy } = ws(anchor.x, anchor.y)
+      ctx.strokeStyle = COLORS.pivot
+      ctx.lineWidth = 2
+      const armLen = 8
       ctx.beginPath()
-      ctx.ellipse(sx, groundY + 3, shadowW, shadowH, 0, 0, Math.PI * 2)
+      ctx.moveTo(sx - armLen, sy); ctx.lineTo(sx + armLen, sy)
+      ctx.moveTo(sx, sy - armLen); ctx.lineTo(sx, sy + armLen)
+      ctx.stroke()
+
+      // Small filled circle at pivot center
+      ctx.fillStyle = COLORS.pivot
+      ctx.beginPath()
+      ctx.arc(sx, sy, 3, 0, Math.PI * 2)
       ctx.fill()
     }
 
@@ -191,8 +165,8 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
     for (const bodyDef of def.bodies) {
       const t = snapshot[bodyDef.id]
       if (!t) continue
-      const { sx, sy } = ws(t.x, t.y, camX)
-      const colors = COLORS[bodyDef.id] || COLORS.shin
+      const { sx, sy } = ws(t.x, t.y)
+      const colors = COLORS[bodyDef.id] || COLORS.link2
 
       if (bodyDef.shape === 'box') {
         drawBox(ctx, sx, sy, t.angle, bodyDef.w / 2, bodyDef.h / 2, colors)
@@ -204,42 +178,44 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
 
     // Draw joint positions
     for (const jointDef of def.joints) {
-      const bodyADef = def.bodies.find(b => b.id === jointDef.bodyA)
       const tA = snapshot[jointDef.bodyA]
-      if (!tA || !bodyADef) continue
+      if (!tA) continue
 
       const [ax, ay] = jointDef.anchorA
       const cos = Math.cos(tA.angle)
       const sin = Math.sin(tA.angle)
-      const wx = tA.x + ax * cos - ay * sin
-      const wy = tA.y + ax * sin + ay * cos
+      const jwx = tA.x + ax * cos - ay * sin
+      const jwy = tA.y + ax * sin + ay * cos
 
-      const { sx, sy } = ws(wx, wy, camX)
+      const { sx, sy } = ws(jwx, jwy)
       drawJointDot(ctx, sx, sy)
     }
 
-    // Foot contact indicator
-    if (snapshot._footContact) {
-      const shin = snapshot.shin
-      if (shin) {
-        const { sx } = ws(shin.x, 0.05, camX)
-        ctx.fillStyle = COLORS.contact
-        ctx.shadowColor = COLORS.contact
-        ctx.shadowBlur = 10
-        ctx.beginPath()
-        ctx.arc(sx, GSY - 2, 5, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.shadowBlur = 0
-      }
+    // Draw a faint "goal line" at the height threshold (minY = 1.5)
+    {
+      const { sy: goalY } = ws(0, 1.5)
+      ctx.strokeStyle = 'rgba(255,100,100,0.15)'
+      ctx.lineWidth = 1
+      ctx.setLineDash([6, 6])
+      ctx.beginPath()
+      ctx.moveTo(0, goalY)
+      ctx.lineTo(W, goalY)
+      ctx.stroke()
+      ctx.setLineDash([])
+
+      ctx.fillStyle = 'rgba(255,100,100,0.2)'
+      ctx.font = '500 9px "DM Mono", monospace'
+      ctx.textAlign = 'right'
+      ctx.fillText('min height', W - 8, goalY - 4)
     }
 
     // HUD
     ctx.font = '500 10px "DM Mono", monospace'
     ctx.textAlign = 'left'
     ctx.fillStyle = 'rgba(255,255,255,0.35)'
-    if (snapshot.torso) {
-      const h = snapshot.torso.y.toFixed(2)
-      ctx.fillText(`h ${h}m`, 12, H - 28)
+    if (snapshot.link2) {
+      const h = snapshot.link2.y.toFixed(2)
+      ctx.fillText(`tip h ${h}m`, 12, H - 28)
     }
     ctx.fillText(`t ${episodeSteps ?? 0}`, 12, H - 12)
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CARTPOLE_PARAMS } from '../env/cartpole.js'
 
 const COLORS = {
@@ -16,8 +16,27 @@ const COLORS = {
   grid: 'rgba(255,255,255,0.03)',
 }
 
-export default function CartPoleRenderer({ state, episodeReward, episodeSteps, isRunning }) {
+export default function CartPoleRenderer({ state, episodeReward, episodeSteps }) {
   const canvasRef = useRef(null)
+  const [canvasSize, setCanvasSize] = useState({ w: 500, h: 260 })
+
+  // Keep canvas pixel dimensions in sync with its display size
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (width > 0 && height > 0) {
+          canvas.width = Math.round(width)
+          canvas.height = Math.round(height)
+          setCanvasSize({ w: Math.round(width), h: Math.round(height) })
+        }
+      }
+    })
+    ro.observe(canvas)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -75,7 +94,6 @@ export default function CartPoleRenderer({ state, episodeReward, episodeSteps, i
     ctx.setLineDash([])
 
     if (!state) {
-      // Idle state - just show ground
       ctx.fillStyle = 'rgba(255,255,255,0.1)'
       ctx.font = '500 14px "DM Mono", monospace'
       ctx.textAlign = 'center'
@@ -99,7 +117,6 @@ export default function CartPoleRenderer({ state, episodeReward, episodeSteps, i
     const poleTipX = poleBaseX + Math.sin(theta) * poleLen
     const poleTipY = poleBaseY - Math.cos(theta) * poleLen
 
-    // Pole glow
     const normalizedAngle = Math.abs(theta) / CARTPOLE_PARAMS.thetaThreshold
     const danger = Math.min(normalizedAngle, 1)
     const poleColor = `rgb(${Math.round(180 + 75 * danger)},${Math.round(90 - 60 * danger)},${Math.round(90 - 60 * danger)})`
@@ -114,7 +131,6 @@ export default function CartPoleRenderer({ state, episodeReward, episodeSteps, i
     ctx.lineTo(poleTipX, poleTipY)
     ctx.stroke()
 
-    // Pole highlight
     ctx.strokeStyle = 'rgba(255,255,255,0.3)'
     ctx.lineWidth = 2
     ctx.shadowBlur = 0
@@ -123,7 +139,6 @@ export default function CartPoleRenderer({ state, episodeReward, episodeSteps, i
     ctx.lineTo(poleTipX, poleTipY)
     ctx.stroke()
 
-    // Pole tip ball
     ctx.fillStyle = COLORS.poleHighlight
     ctx.shadowColor = COLORS.poleHighlight
     ctx.shadowBlur = 8
@@ -145,7 +160,6 @@ export default function CartPoleRenderer({ state, episodeReward, episodeSteps, i
     ctx.fill()
     ctx.shadowBlur = 0
 
-    // Cart outline
     ctx.strokeStyle = 'rgba(255,255,255,0.15)'
     ctx.lineWidth = 1
     ctx.beginPath()
@@ -176,13 +190,11 @@ export default function CartPoleRenderer({ state, episodeReward, episodeSteps, i
       ctx.fillText(`r ${(episodeReward || 0).toFixed(1)}`, W - 12, H - 28)
     }
 
-  }, [state, episodeReward, episodeSteps])
+  }, [state, episodeReward, episodeSteps, canvasSize])
 
   return (
     <canvas
       ref={canvasRef}
-      width={500}
-      height={260}
       style={{ width: '100%', height: '100%', display: 'block' }}
     />
   )

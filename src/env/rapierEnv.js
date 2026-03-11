@@ -95,9 +95,9 @@ export class RapierEnv {
           .cuboid(bodyDef.radius, 0.02)
           .setTranslation(0, -(bodyDef.length / 2))
           .setSensor(true)
-          .setActiveEvents(RAPIER.ActiveEvents.INTERSECTION_EVENTS)
-        this.world.createCollider(sensorDesc, rb)
-        this.footSensorHandle = rb.handle
+          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+        const sensorCollider = this.world.createCollider(sensorDesc, rb)
+        this.footSensorHandle = sensorCollider.handle  // collider handle, not body handle
       }
 
       this.world.createCollider(colliderDesc, rb)
@@ -186,12 +186,11 @@ export class RapierEnv {
     }
     this.stepCount++
 
-    // Update foot contact via intersection events
+    // Update foot contact via narrow phase intersection queries
     this._footContact = false
-    this.world.intersectionsWith(
-      this.world.getCollider(this.footSensorHandle),
-      () => { this._footContact = true }
-    )
+    this.world.narrowPhase.intersectionPairsWith(this.footSensorHandle, () => {
+      this._footContact = true
+    })
 
     const obs = this._getObs()
     const torso = this.bodies[def.forwardBody]
@@ -242,12 +241,16 @@ export class RapierEnv {
       torsoAngVel,     // angular velocity
     ]
 
-    // Joint angles and velocities
+    // Joint angles and velocities (computed from connected bodies)
     for (const jointDef of def.joints) {
-      const joint = this.joints[jointDef.id]
-      // Rapier revolute joint angle
-      obs.push(joint.angle())
-      obs.push(joint.bodyVelocity1().z ?? 0)  // angular velocity around z
+      const bodyA = this.bodies[jointDef.bodyA]
+      const bodyB = this.bodies[jointDef.bodyB]
+      // Revolute joint angle = relative rotation between bodies
+      const jointAngle = bodyB.rotation() - bodyA.rotation()
+      // Relative angular velocity
+      const jointAngVel = bodyB.angvel() - bodyA.angvel()
+      obs.push(jointAngle)
+      obs.push(jointAngVel)
     }
 
     // Ground contact

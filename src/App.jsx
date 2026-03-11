@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import CartPoleRenderer from './components/CartPoleRenderer.jsx'
 import HopperRenderer from './components/HopperRenderer.jsx'
+import Walker2DRenderer from './components/Walker2DRenderer.jsx'
+import AcrobotRenderer from './components/AcrobotRenderer.jsx'
 import RewardChart from './components/RewardChart.jsx'
 import TrainingCharts from './components/TrainingCharts.jsx'
 import MetricsPanel from './components/MetricsPanel.jsx'
 import HyperParams from './components/HyperParams.jsx'
+import Tooltip from './components/Tooltip.jsx'
 import { DEFAULT_PPO_CONFIG } from './rl/ppo.js'
 
 const ENV_CONFIGS = {
@@ -13,13 +16,42 @@ const ENV_CONFIGS = {
     desc: 'Inverted pendulum · 4 obs · 1 action',
     solvedThreshold: 450,
     ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 512 },
+    tooltip: 'Classic control benchmark. The agent applies horizontal force to a cart to keep an inverted pendulum upright. 4D observation (position, velocity, pole angle, angular velocity), 1 continuous action. Solved at mean reward ≥ 450.',
   },
   hopper: {
     label: 'Hopper',
     desc: 'Monopod hopper · 10 obs · 2 actions',
     solvedThreshold: 1500,
     ppoOverrides: { hiddenSizes: [128, 128], stepsPerUpdate: 1024, numEpochs: 10 },
+    tooltip: 'Physics-based locomotion (Rapier2D). A single-legged robot learns to hop forward without falling. 10D observation, 2 continuous joint torques. More challenging than CartPole — contact dynamics, sparse-ish reward, harder exploration. Solved at mean reward ≥ 1500.',
   },
+  walker2d: {
+    label: 'Walker2D',
+    desc: 'Bipedal walker · 14 obs · 4 actions',
+    solvedThreshold: 1500,
+    ppoOverrides: { hiddenSizes: [128, 128], stepsPerUpdate: 2048, numEpochs: 10 },
+    tooltip: 'Bipedal locomotion (Rapier2D). A two-legged robot learns to walk forward without falling. 14D observation, 4 continuous joint torques (hip and knee per leg). Harder than Hopper — must coordinate both legs symmetrically. Solved at mean reward ≥ 1500.',
+  },
+  acrobot: {
+    label: 'Acrobot',
+    desc: 'Double pendulum · 10 obs · 2 actions',
+    solvedThreshold: 800,
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 512, numEpochs: 10 },
+    tooltip: 'Inverted double pendulum balance (Rapier2D). Two links hang from a fixed pivot — only the elbow joint is actuated. The agent must keep both links balanced above a height threshold. 10D observation, 1 effective action. Solved at mean reward ≥ 800.',
+  },
+}
+
+const TOOLTIPS = {
+  rewardCurve: 'Rolling 20-episode mean reward plotted over training updates. The primary visual signal for whether the agent is improving. The dashed line is the solved threshold for the current environment.',
+  trainingMetrics: 'Key scalars logged after each policy update: reward trend, losses, and entropy. Useful for diagnosing training problems — e.g., flat reward with rising entropy often indicates poor exploration.',
+  hyperparameters: 'The knobs that control PPO training dynamics. Locked during a run; set them before hitting Train. Defaults are reasonable starting points — most experiments only need learning rate tuning.',
+  network: 'The neural network architecture for this environment. Actor and Critic are separate MLPs with the same hidden width but independent weights.',
+  actor: 'The policy network π(a|s). Takes an observation vector and outputs action parameters — for continuous actions, the mean (and log-std) of a Gaussian. During training, actions are sampled from this distribution.',
+  critic: 'The value network V(s). Estimates expected future return from the current state. Used only during training to compute advantage estimates A = R − V(s). Not used at inference time.',
+  obs: 'Observation vector — the raw state representation fed to both the actor and critic at each timestep.',
+  act: 'Action output from the actor. For CartPole: scalar horizontal force. For Hopper/Walker2D: continuous joint torques.',
+  solved: 'The rolling mean reward over the last 20 episodes has exceeded the benchmark threshold. The agent has learned a reliably successful policy.',
+  avgPill: 'Current rolling mean reward (last 20 episodes) vs. the solved threshold for this environment.',
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -166,6 +198,13 @@ const css = `
   input[type=range]:disabled::-webkit-slider-thumb {
     background: rgba(255,255,255,0.2);
     box-shadow: none;
+  }
+
+  [role="button"][aria-label="More information"]:focus-visible {
+    outline: 1px solid rgba(226,185,111,0.6);
+    outline-offset: 2px;
+    border-radius: 2px;
+    color: rgba(255,255,255,0.5) !important;
   }
 
   body::before {
@@ -315,13 +354,22 @@ export default function App() {
   const solvedThreshold = ENV_CONFIGS[envType].solvedThreshold
   const isSolved = latestReward >= solvedThreshold
 
-  const simContent = envType === 'cartpole'
-    ? <CartPoleRenderer state={cartpoleState} episodeReward={episodeReward} episodeSteps={episodeSteps} />
-    : <HopperRenderer snapshot={hopperSnapshot} episodeReward={episodeReward} episodeSteps={episodeSteps} />
+  const renderSnapshotProps = { snapshot: hopperSnapshot, episodeReward, episodeSteps }
+  const RENDERERS = {
+    cartpole: <CartPoleRenderer state={cartpoleState} episodeReward={episodeReward} episodeSteps={episodeSteps} />,
+    hopper: <HopperRenderer {...renderSnapshotProps} />,
+    walker2d: <Walker2DRenderer {...renderSnapshotProps} />,
+    acrobot: <AcrobotRenderer {...renderSnapshotProps} />,
+  }
+  const simContent = RENDERERS[envType]
 
-  const networkDesc = envType === 'cartpole'
-    ? { actor: '4 → 64 → 64 → 1', obs: '[x, ẋ, θ, θ̇]', actions: 'force' }
-    : { actor: '10 → 128 → 128 → 2', obs: '[y, θ, vx, vy, ω, hip∠, hip·ω, knee∠, knee·ω, contact]', actions: '[τ_hip, τ_knee]' }
+  const NETWORK_DESCS = {
+    cartpole: { actor: '4 → 64 → 64 → 1', obs: '[x, ẋ, θ, θ̇]', actions: 'force' },
+    hopper: { actor: '10 → 128 → 128 → 2', obs: '[y, θ, vx, vy, ω, hip∠, hip·ω, knee∠, knee·ω, contact]', actions: '[τ_hip, τ_knee]' },
+    walker2d: { actor: '14 → 128 → 128 → 4', obs: '[y, θ, vx, vy, ω, 4×(j∠, j·ω), contact]', actions: '[τ_lhip, τ_lknee, τ_rhip, τ_rknee]' },
+    acrobot: { actor: '10 → 64 → 64 → 2', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[0, τ_elbow]' },
+  }
+  const networkDesc = NETWORK_DESCS[envType]
 
   return (
     <>
@@ -361,13 +409,15 @@ export default function App() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {isSolved && (
-              <span className="pill" style={{ background: 'rgba(74,222,128,0.12)', color: 'var(--green)', border: '1px solid rgba(74,222,128,0.2)' }}>
+              <span className="pill" style={{ background: 'rgba(74,222,128,0.12)', color: 'var(--green)', border: '1px solid rgba(74,222,128,0.2)', display: 'inline-flex', alignItems: 'center' }}>
                 ✓ solved
+                <Tooltip text={TOOLTIPS.solved} />
               </span>
             )}
             {metrics.length > 0 && (
-              <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)' }}>
+              <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)', display: 'inline-flex', alignItems: 'center' }}>
                 {latestReward.toFixed(0)} / {solvedThreshold} avg
+                <Tooltip text={TOOLTIPS.avgPill} />
               </span>
             )}
           </div>
@@ -389,7 +439,10 @@ export default function App() {
                     onClick={() => { setEnvType(key); setMetrics([]); setEpisodes(0) }}
                     disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
                   >
-                    {cfg.label}
+                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                      {cfg.label}
+                      <Tooltip text={cfg.tooltip} />
+                    </span>
                     <span style={{ fontSize: 8, display: 'block', marginTop: 1, opacity: 0.6 }}>
                       {cfg.desc}
                     </span>
@@ -430,7 +483,11 @@ export default function App() {
             {/* Always-visible reward chart when sim tab is active */}
             {selectedTab === 'sim' && (
               <div className="panel" style={{ flex: '1 1 160px' }}>
-                <div className="panel-header">◈ reward curve
+                <div className="panel-header">
+                  <span style={{ display: 'flex', alignItems: 'center' }}>
+                    ◈ reward curve
+                    <Tooltip text={TOOLTIPS.rewardCurve} />
+                  </span>
                   <span>target: {solvedThreshold}</span>
                 </div>
                 <div style={{ height: 150, padding: '8px 4px' }}>
@@ -441,7 +498,12 @@ export default function App() {
 
             {/* Metrics */}
             <div className="panel">
-              <div className="panel-header">◉ training metrics</div>
+              <div className="panel-header">
+                <span style={{ display: 'flex', alignItems: 'center' }}>
+                  ◉ training metrics
+                  <Tooltip text={TOOLTIPS.trainingMetrics} />
+                </span>
+              </div>
               <div style={{ padding: '14px 16px' }}>
                 <MetricsPanel metrics={metrics} episodes={episodes} status={status} backend={backend} />
               </div>
@@ -528,7 +590,10 @@ export default function App() {
             {/* Hyperparameters */}
             <div className="panel" style={{ flex: 1 }}>
               <div className="panel-header">
-                ◧ hyperparameters
+                <span style={{ display: 'flex', alignItems: 'center' }}>
+                  ◧ hyperparameters
+                  <Tooltip text={TOOLTIPS.hyperparameters} />
+                </span>
                 <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.2)' }}>
                   {isRunning ? 'LOCKED' : 'EDIT BEFORE TRAIN'}
                 </span>
@@ -540,15 +605,28 @@ export default function App() {
 
             {/* Network info */}
             <div className="panel">
-              <div className="panel-header">◫ network · {ENV_CONFIGS[envType].label}</div>
+              <div className="panel-header">
+                <span style={{ display: 'flex', alignItems: 'center' }}>
+                  ◫ network · {ENV_CONFIGS[envType].label}
+                  <Tooltip text={TOOLTIPS.network} />
+                </span>
+              </div>
               <div style={{ padding: '12px 14px', fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.8, fontFamily: '"DM Mono", monospace' }}>
-                <div>Actor: {networkDesc.actor}</div>
-                <div>Critic: same width → 1</div>
-                <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.15)', fontSize: 9, lineHeight: 1.6 }}>
-                  obs: {networkDesc.obs}
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  Actor: {networkDesc.actor}
+                  <Tooltip text={TOOLTIPS.actor} />
                 </div>
-                <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: 9 }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  Critic: same width → 1
+                  <Tooltip text={TOOLTIPS.critic} />
+                </div>
+                <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.15)', fontSize: 9, lineHeight: 1.6, display: 'flex', alignItems: 'center' }}>
+                  obs: {networkDesc.obs}
+                  <Tooltip text={TOOLTIPS.obs} />
+                </div>
+                <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: 9, display: 'flex', alignItems: 'center' }}>
                   act: {networkDesc.actions}
+                  <Tooltip text={TOOLTIPS.act} />
                 </div>
               </div>
             </div>
