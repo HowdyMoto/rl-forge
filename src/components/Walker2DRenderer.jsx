@@ -222,11 +222,11 @@ export default function Walker2DRenderer({ snapshot, episodeReward, episodeSteps
       drawJointDot(ctx, sx, sy)
     }
 
-    // Foot contact indicator (right shin only, due to single-sensor limitation)
-    if (snapshot._footContact) {
-      const rightShin = snapshot.right_shin
-      if (rightShin) {
-        const { sx } = ws(rightShin.x, 0.05, camX)
+    // Foot contact indicators
+    const contacts = snapshot._footContacts || {}
+    for (const [bodyId, inContact] of Object.entries(contacts)) {
+      if (inContact && snapshot[bodyId]) {
+        const { sx } = ws(snapshot[bodyId].x, 0.05, camX)
         ctx.fillStyle = COLORS.contact
         ctx.shadowColor = COLORS.contact
         ctx.shadowBlur = 10

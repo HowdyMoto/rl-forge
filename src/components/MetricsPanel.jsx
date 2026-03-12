@@ -40,6 +40,15 @@ export default function MetricsPanel({ metrics, episodes, status, backend }) {
       {stat('Policy Loss', latest?.policyLoss != null ? latest.policyLoss.toFixed(3) : '—')}
       {stat('Entropy', latest?.entropy != null ? latest.entropy.toFixed(3) : '—')}
 
+      {latest?.timing && (
+        <div style={{ gridColumn: '1 / -1', marginTop: 4, display: 'flex', gap: 12, fontSize: 10, color: 'rgba(255,255,255,0.40)', fontFamily: '"DM Mono", monospace' }}>
+          <span style={{ color: '#e2b96f' }}>{latest.timing.stepsPerSec.toLocaleString()} steps/s</span>
+          <span>inference <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.inferenceMs}ms</span></span>
+          <span>physics <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.physicsMs}ms</span></span>
+          <span>update <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.updateMs}ms</span></span>
+        </div>
+      )}
+
       <div style={{ gridColumn: '1 / -1', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{
           width: 6, height: 6, borderRadius: '50%',

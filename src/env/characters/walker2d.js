@@ -8,10 +8,8 @@
  * Coordinate system: +x = right (forward), +y = up
  * All sizes in meters, masses in kg, angles in radians.
  *
- * NOTE: The current RapierEnv only supports a single footSensorHandle,
- * so only right_shin is marked as isFootBody. The observation space
- * therefore includes only one foot contact boolean. This is a known
- * limitation to be addressed when RapierEnv supports multiple foot sensors.
+ * Both shins have foot contact sensors, giving the policy ground-contact
+ * information for each leg — essential for learning alternating gait.
  */
 
 export const WALKER2D = {
@@ -64,7 +62,7 @@ export const WALKER2D = {
       spawnX: 0.05,
       spawnY: 0.50,
       spawnAngle: 0.0,
-      isFootBody: false,  // only one foot sensor supported; right_shin gets it
+      isFootBody: true,   // ground contact sensor for left foot
     },
     {
       id: 'right_thigh',
@@ -158,9 +156,9 @@ export const WALKER2D = {
   //        left_knee.angle, left_knee.angVel,                              (2)
   //        right_hip.angle, right_hip.angVel,                              (2)
   //        right_knee.angle, right_knee.angVel,                            (2)
-  //        right_shin_ground_contact]                                      (1)
-  //                                                                  total: 14
-  obsSize: 14,
+  //        left_shin_ground_contact, right_shin_ground_contact]            (2)
+  //                                                                  total: 15
+  obsSize: 15,
   // actions = [left_hip_torque, left_knee_torque, right_hip_torque, right_knee_torque] in [-1,1]
   actionSize: 4,
 

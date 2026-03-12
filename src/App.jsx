@@ -27,10 +27,10 @@ const ENV_CONFIGS = {
   },
   walker2d: {
     label: 'Walker2D',
-    desc: 'Bipedal walker · 14 obs · 4 actions',
+    desc: 'Bipedal walker · 15 obs · 4 actions',
     solvedThreshold: 1500,
     ppoOverrides: { hiddenSizes: [128, 128], stepsPerUpdate: 2048, numEpochs: 10 },
-    tooltip: 'Bipedal locomotion (Rapier2D). A two-legged robot learns to walk forward without falling. 14D observation, 4 continuous joint torques (hip and knee per leg). Harder than Hopper — must coordinate both legs symmetrically. Solved at mean reward ≥ 1500.',
+    tooltip: 'Bipedal locomotion (Rapier2D). A two-legged robot learns to walk forward without falling. 15D observation, 4 continuous joint torques (hip and knee per leg). Harder than Hopper — must coordinate both legs symmetrically. Solved at mean reward ≥ 1500.',
   },
   acrobot: {
     label: 'Acrobot',
@@ -270,7 +270,9 @@ export default function App() {
           break
         case 'STATUS':
           setStatus(msg.msg)
-          if (msg.msg.startsWith('TF:')) setBackend(msg.msg.replace('TF: ', ''))
+          break
+        case 'BACKEND':
+          setBackend(msg.deviceName ? `${msg.backend} · ${msg.deviceName}` : msg.backend)
           break
         case 'EXPORT_URL':
           setExportUrl(msg.url)
@@ -366,7 +368,7 @@ export default function App() {
   const NETWORK_DESCS = {
     cartpole: { actor: '4 → 64 → 64 → 1', obs: '[x, ẋ, θ, θ̇]', actions: 'force' },
     hopper: { actor: '10 → 128 → 128 → 2', obs: '[y, θ, vx, vy, ω, hip∠, hip·ω, knee∠, knee·ω, contact]', actions: '[τ_hip, τ_knee]' },
-    walker2d: { actor: '14 → 128 → 128 → 4', obs: '[y, θ, vx, vy, ω, 4×(j∠, j·ω), contact]', actions: '[τ_lhip, τ_lknee, τ_rhip, τ_rknee]' },
+    walker2d: { actor: '15 → 128 → 128 → 4', obs: '[y, θ, vx, vy, ω, 4×(j∠, j·ω), Lcontact, Rcontact]', actions: '[τ_lhip, τ_lknee, τ_rhip, τ_rknee]' },
     acrobot: { actor: '10 → 64 → 64 → 2', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[0, τ_elbow]' },
   }
   const networkDesc = NETWORK_DESCS[envType]

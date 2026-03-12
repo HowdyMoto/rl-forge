@@ -38,29 +38,36 @@ const WEBGPU_MIN_STORAGE_BUFFERS = 16
  * Probe the GPU adapter to check whether WebGPU is viable.
  * Returns true only if the device exposes enough storage buffers.
  */
-async function isWebGPUViable() {
-  if (typeof navigator === 'undefined' || !navigator.gpu) return false
+/** Probe the GPU adapter; returns { viable, deviceName } */
+async function probeWebGPU() {
+  if (typeof navigator === 'undefined' || !navigator.gpu) return { viable: false, deviceName: '' }
   try {
     const adapter = await navigator.gpu.requestAdapter()
-    if (!adapter) return false
+    if (!adapter) return { viable: false, deviceName: '' }
     const maxBuffers = adapter.limits.maxStorageBuffersPerShaderStage
-    return maxBuffers >= WEBGPU_MIN_STORAGE_BUFFERS
+    const viable = maxBuffers >= WEBGPU_MIN_STORAGE_BUFFERS
+    let deviceName = ''
+    try {
+      const info = await adapter.requestAdapterInfo()
+      deviceName = info.device || info.description || ''
+    } catch { /* adapter info not available */ }
+    return { viable, deviceName }
   } catch {
-    return false
+    return { viable: false, deviceName: '' }
   }
 }
 
 async function initTFBackend() {
-  const webgpuOk = await isWebGPUViable()
-  const backends = webgpuOk ? ['webgpu', 'webgl', 'cpu'] : ['webgl', 'cpu']
+  const gpu = await probeWebGPU()
+  const backends = gpu.viable ? ['webgpu', 'webgl', 'cpu'] : ['webgl', 'cpu']
   for (const b of backends) {
     try {
       await tf.setBackend(b)
       await tf.ready()
-      return b
+      return { backend: b, deviceName: gpu.deviceName }
     } catch { continue }
   }
-  return 'cpu'
+  return { backend: 'cpu', deviceName: '' }
 }
 
 async function initEnv(envType) {
@@ -90,8 +97,8 @@ async function initEnv(envType) {
 async function runTraining(config) {
   const { envType = 'cartpole', ppoConfig = {}, maxUpdates = 3000 } = config
 
-  const tfBackend = await initTFBackend()
-  postMessage({ type: 'STATUS', msg: `TF: ${tfBackend}` })
+  const { backend: tfBackend, deviceName } = await initTFBackend()
+  postMessage({ type: 'BACKEND', backend: tfBackend, deviceName })
 
   env = await initEnv(envType)
   postMessage({ type: 'STATUS', msg: `${envType} ready` })
@@ -110,6 +117,12 @@ async function runTraining(config) {
   let obs = env.reset()
   postMessage({ type: 'STATUS', msg: 'Training started' })
 
+  // Timing accumulators (reset each PPO update)
+  let t_inference = 0   // GPU forward pass
+  let t_physics = 0     // env.step()
+  let t_update = 0      // PPO backprop
+  let t_rolloutStart = performance.now()
+
   while (!stopped && updateCount < maxUpdates) {
     while (paused && !stopped) await new Promise(r => setTimeout(r, 100))
     if (stopped) break
@@ -118,6 +131,7 @@ async function runTraining(config) {
     const isMultiAction = env.actionSize > 1
     let actionForEnv, storedAction, value, logProb
 
+    const t0 = performance.now()
     if (isMultiAction) {
       const result = await agent.actMulti(obs)
       actionForEnv = result.actions    // Float32Array
@@ -131,8 +145,12 @@ async function runTraining(config) {
       value = result.value
       logProb = result.logProb
     }
+    const t1 = performance.now()
+    t_inference += t1 - t0
 
     const { obs: nextObs, reward, done } = env.step(actionForEnv)
+    const t2 = performance.now()
+    t_physics += t2 - t1
 
     agent.storeTransition(obs, storedAction, reward, done, value, logProb)
     episodeReward += reward
@@ -172,15 +190,36 @@ async function runTraining(config) {
     }
 
     if (agent.bufferFull) {
+      const tUpdateStart = performance.now()
       const metrics = await agent.update(obs, envType === 'hopper')
+      const tUpdateEnd = performance.now()
+      t_update = tUpdateEnd - tUpdateStart
       updateCount++
+
+      const t_rolloutTotal = tUpdateStart - t_rolloutStart
+      const totalMs = tUpdateEnd - t_rolloutStart
+      const stepsPerSec = Math.round(agent.cfg.stepsPerUpdate / (totalMs / 1000))
+      const timing = {
+        rolloutMs: Math.round(t_rolloutTotal),
+        inferenceMs: Math.round(t_inference),
+        physicsMs: Math.round(t_physics),
+        updateMs: Math.round(t_update),
+        totalMs: Math.round(totalMs),
+        stepsPerSec,
+      }
+      console.log(`[perf] update ${updateCount}: rollout ${timing.rolloutMs}ms (inference ${timing.inferenceMs}ms + physics ${timing.physicsMs}ms + other ${Math.round(t_rolloutTotal - t_inference - t_physics)}ms) | PPO update ${timing.updateMs}ms | total ${timing.totalMs}ms`)
+
+      // Reset accumulators
+      t_inference = 0
+      t_physics = 0
+      t_rolloutStart = performance.now()
 
       const recent = episodeRewards.slice(-20)
       const meanReward = recent.length > 0 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0
 
       postMessage({
         type: 'METRICS',
-        data: { update: updateCount, totalSteps, totalEpisodes, meanReward20: meanReward, ...metrics, tensorMemory: tf.memory().numTensors }
+        data: { update: updateCount, totalSteps, totalEpisodes, meanReward20: meanReward, ...metrics, timing, tensorMemory: tf.memory().numTensors }
       })
 
       await new Promise(r => setTimeout(r, 0))
@@ -194,8 +233,8 @@ async function runTraining(config) {
 async function runPlayback(config) {
   const { envType = 'cartpole', ppoConfig = {}, weights } = config
 
-  const tfBackend = await initTFBackend()
-  postMessage({ type: 'STATUS', msg: `TF: ${tfBackend}` })
+  const { backend: tfBackend, deviceName } = await initTFBackend()
+  postMessage({ type: 'BACKEND', backend: tfBackend, deviceName })
 
   env = await initEnv(envType)
   agent = new PPOAgent(env.observationSize, env.actionSize, ppoConfig)

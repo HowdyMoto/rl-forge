@@ -34,11 +34,11 @@ export class RapierEnv {
     this.bodies = {}       // id → RigidBody
     this.joints = {}       // id → ImpulseJoint
     this.groundHandle = null
-    this.footSensorHandle = null
+    this.footSensorHandles = {}  // bodyId → collider handle
     this.stepCount = 0
     this.maxSteps = 1000
     this._prevTorsoX = 0
-    this._footContact = false
+    this._footContacts = {}      // bodyId → boolean
   }
 
   // ─── Build the world from the character definition ────────────────────────
@@ -97,7 +97,7 @@ export class RapierEnv {
           .setSensor(true)
           .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
         const sensorCollider = this.world.createCollider(sensorDesc, rb)
-        this.footSensorHandle = sensorCollider.handle  // collider handle, not body handle
+        this.footSensorHandles[bodyDef.id] = sensorCollider.handle
       }
 
       this.world.createCollider(colliderDesc, rb)
@@ -143,7 +143,7 @@ export class RapierEnv {
     // Rebuild world fresh each episode to avoid joint drift accumulation
     this._buildWorld()
     this.stepCount = 0
-    this._footContact = false
+    this._footContacts = {}
 
     // Small random perturbation to break symmetry
     for (const bodyDef of def.bodies) {
@@ -186,11 +186,13 @@ export class RapierEnv {
     }
     this.stepCount++
 
-    // Update foot contact via narrow phase intersection queries
-    this._footContact = false
-    this.world.narrowPhase.intersectionPairsWith(this.footSensorHandle, () => {
-      this._footContact = true
-    })
+    // Update foot contacts via narrow phase intersection queries
+    for (const [bodyId, handle] of Object.entries(this.footSensorHandles)) {
+      this._footContacts[bodyId] = false
+      this.world.narrowPhase.intersectionPairsWith(handle, () => {
+        this._footContacts[bodyId] = true
+      })
+    }
 
     const obs = this._getObs()
     const torso = this.bodies[def.forwardBody]
@@ -253,10 +255,14 @@ export class RapierEnv {
       obs.push(jointAngVel)
     }
 
-    // Ground contact
-    obs.push(this._footContact ? 1.0 : 0.0)
+    // Ground contact(s) — one boolean per foot sensor body
+    for (const bodyDef of def.bodies) {
+      if (bodyDef.isFootBody) {
+        obs.push(this._footContacts[bodyDef.id] ? 1.0 : 0.0)
+      }
+    }
 
-    return obs  // length = 5 + 2*numJoints + 1 = 10 for hopper
+    return obs  // length = 5 + 2*numJoints + numFeet (10 for hopper, 15 for walker2d)
   }
 
   // ─── Snapshot for rendering ───────────────────────────────────────────────
@@ -274,7 +280,7 @@ export class RapierEnv {
         angle: rb.rotation(),
       }
     }
-    snapshot._footContact = this._footContact
+    snapshot._footContacts = { ...this._footContacts }
     return snapshot
   }
 

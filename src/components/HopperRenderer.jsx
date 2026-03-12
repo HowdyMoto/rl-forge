@@ -219,10 +219,10 @@ export default function HopperRenderer({ snapshot, episodeReward, episodeSteps }
     }
 
     // Foot contact indicator
-    if (snapshot._footContact) {
-      const shin = snapshot.shin
-      if (shin) {
-        const { sx } = ws(shin.x, 0.05, camX)
+    const contacts = snapshot._footContacts || {}
+    for (const [bodyId, inContact] of Object.entries(contacts)) {
+      if (inContact && snapshot[bodyId]) {
+        const { sx } = ws(snapshot[bodyId].x, 0.05, camX)
         ctx.fillStyle = COLORS.contact
         ctx.shadowColor = COLORS.contact
         ctx.shadowBlur = 10
