@@ -78,9 +78,23 @@ const RAPIER_ENVS = {
   acrobot: () => import('../env/characters/acrobot.js').then(m => m.ACROBOT),
 }
 
-async function initEnv(envType) {
+async function initEnv(envType, customCharDef = null) {
   if (envType === 'cartpole') {
     return new CartPoleEnv()
+  }
+
+  // Terrain environment (creature builder)
+  if (envType === 'terrain') {
+    await import('@dimforge/rapier2d')
+    postMessage({ type: 'STATUS', msg: 'Rapier WASM ready' })
+
+    const { TerrainRapierEnv } = await import('../env/terrainEnv.js')
+    const charDef = customCharDef || (await import('../env/characters/biped.js')).BIPED
+    return new TerrainRapierEnv(charDef, {
+      difficulty: customCharDef?.difficulty ?? 0.3,
+      terrainLength: 50,
+      maxSteps: 1000,
+    })
   }
 
   if (RAPIER_ENVS[envType]) {
@@ -99,7 +113,17 @@ async function initEnv(envType) {
  * Create a VecEnv with N copies of a Rapier environment.
  * WASM must already be initialized before calling this.
  */
-async function initVecEnv(envType, numEnvs) {
+async function initVecEnv(envType, numEnvs, customCharDef = null) {
+  if (envType === 'terrain') {
+    const { TerrainRapierEnv } = await import('../env/terrainEnv.js')
+    const charDef = customCharDef || (await import('../env/characters/biped.js')).BIPED
+    return new VecEnv(() => new TerrainRapierEnv(charDef, {
+      difficulty: customCharDef?.difficulty ?? 0.3,
+      terrainLength: 50,
+      maxSteps: 1000,
+    }), numEnvs)
+  }
+
   const { RapierEnv } = await import('../env/rapierEnv.js')
   const charDef = await RAPIER_ENVS[envType]()
   return new VecEnv(() => new RapierEnv(charDef), numEnvs)
@@ -109,21 +133,21 @@ async function initVecEnv(envType, numEnvs) {
 const DEFAULT_NUM_ENVS = 8
 
 async function runTraining(config) {
-  const { envType = 'cartpole', ppoConfig = {}, maxUpdates = 3000, numEnvs = DEFAULT_NUM_ENVS } = config
+  const { envType = 'cartpole', ppoConfig = {}, maxUpdates = 3000, numEnvs = DEFAULT_NUM_ENVS, charDef = null } = config
 
   const { backend: tfBackend, deviceName } = await initTFBackend()
   postMessage({ type: 'BACKEND', backend: tfBackend, deviceName })
 
-  const useVecEnv = RAPIER_ENVS[envType] != null
+  const useVecEnv = RAPIER_ENVS[envType] != null || envType === 'terrain'
 
   if (useVecEnv) {
     // Initialize Rapier WASM once, then create vectorized envs
     await import('@dimforge/rapier2d')
     postMessage({ type: 'STATUS', msg: 'Rapier WASM ready' })
-    env = await initVecEnv(envType, numEnvs)
-    postMessage({ type: 'STATUS', msg: `${envType} ready · ${numEnvs} envs` })
+    env = await initVecEnv(envType, numEnvs, charDef)
+    postMessage({ type: 'STATUS', msg: `${charDef?.name || envType} ready · ${numEnvs} envs` })
   } else {
-    env = await initEnv(envType)
+    env = await initEnv(envType, charDef)
     postMessage({ type: 'STATUS', msg: `${envType} ready` })
   }
 
@@ -376,12 +400,12 @@ async function runSingleEnvLoop(envType, maxUpdates) {
 }
 
 async function runPlayback(config) {
-  const { envType = 'cartpole', ppoConfig = {}, weights } = config
+  const { envType = 'cartpole', ppoConfig = {}, weights, charDef = null } = config
 
   const { backend: tfBackend, deviceName } = await initTFBackend()
   postMessage({ type: 'BACKEND', backend: tfBackend, deviceName })
 
-  env = await initEnv(envType)
+  env = await initEnv(envType, charDef)
   agent = new PPOAgent(env.observationSize, env.actionSize, ppoConfig)
   agent.importWeights(weights)
   postMessage({ type: 'STATUS', msg: 'Playback' })
