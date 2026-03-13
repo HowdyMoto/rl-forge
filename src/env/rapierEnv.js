@@ -65,8 +65,7 @@ export class RapierEnv {
 
     // Character bodies
     for (const bodyDef of def.bodies) {
-      const rbDesc = RAPIER.RigidBodyDesc
-        .dynamic()
+      const rbDesc = (bodyDef.fixed ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic())
         .setTranslation(bodyDef.spawnX, bodyDef.spawnY)
         .setRotation(bodyDef.spawnAngle)
 
@@ -122,6 +121,12 @@ export class RapierEnv {
       jointData.limits = [jointDef.lowerLimit, jointDef.upperLimit]
 
       const joint = this.world.createImpulseJoint(jointData, bodyA, bodyB, true)
+
+      // Apply joint damping as a velocity-targeting motor (target = 0, damping resists motion)
+      if (jointDef.damping > 0) {
+        joint.configureMotorVelocity(0.0, jointDef.damping)
+      }
+
       this.joints[jointDef.id] = joint
     }
   }
@@ -169,15 +174,13 @@ export class RapierEnv {
     // Clamp actions to [-1, 1]
     const clampedActions = actions.map(a => Math.max(-1, Math.min(1, a)))
 
-    // Apply joint torques
+    // Apply joint torques via Rapier motor API (works correctly with fixed bodies)
     def.joints.forEach((jointDef, i) => {
       const joint = this.joints[jointDef.id]
-      const torque = clampedActions[i] * jointDef.maxTorque
-      // Apply equal and opposite torques to the two connected bodies
-      const bodyA = this.bodies[jointDef.bodyA]
-      const bodyB = this.bodies[jointDef.bodyB]
-      bodyA.applyTorqueImpulse(-torque * AGENT_DT, true)
-      bodyB.applyTorqueImpulse( torque * AGENT_DT, true)
+      if (jointDef.maxTorque <= 0) return  // passive joint
+      // Motor targets velocity proportional to action, bounded by maxTorque
+      const targetVel = clampedActions[i] * jointDef.maxVelocity
+      joint.configureMotorVelocity(targetVel, jointDef.maxTorque)
     })
 
     // Substep physics
@@ -210,13 +213,17 @@ export class RapierEnv {
     const done = !healthy || this.stepCount >= this.maxSteps
     const timedOut = this.stepCount >= this.maxSteps
 
-    // Reward (matches MuJoCo Hopper default)
+    // Reward
     const r = def.defaultReward
     let reward = 0
     if (healthy || timedOut) {
       reward += forwardVel * r.forwardVelWeight
       reward += r.aliveBonusWeight
       reward -= r.ctrlCostWeight * clampedActions.reduce((s, a) => s + a * a, 0)
+      // Height-based reward (e.g. acrobot swing-up)
+      if (r.tipHeightWeight) {
+        reward += (torsoPos.y - (r.anchorY ?? 0)) * r.tipHeightWeight
+      }
     }
     if (done && !timedOut) {
       reward -= r.terminationPenalty

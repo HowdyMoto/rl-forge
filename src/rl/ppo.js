@@ -228,6 +228,81 @@ export class PPOAgent {
     }
   }
 
+  /**
+   * Batched inference for vectorized environments.
+   * Takes N observations, does ONE GPU forward pass, returns N actions/values/logProbs.
+   * @param {Array<Array<number>>} obsArray - [N][obsSize] observations
+   * @returns {{ actions: Array<Float32Array>, values: Float32Array, logProbs: Float32Array }}
+   */
+  async actBatch(obsArray) {
+    const N = obsArray.length
+    const tensors = tf.tidy(() => {
+      const obsTensor = tf.tensor2d(obsArray)            // [N, obsSize]
+      const mean = this.actor.predict(obsTensor)          // [N, actionSize]
+      const std = tf.exp(this.logStd)                     // [actionSize]
+      const noise = tf.randomNormal(mean.shape)
+      const rawAction = tf.add(mean, tf.mul(std, noise))  // [N, actionSize]
+      const action = tf.tanh(rawAction)                   // [N, actionSize]
+
+      const logProbRaw = gaussianLogProb(rawAction, mean, this.logStd) // [N]
+      const tanhCorrection = tf.sum(
+        tf.log(tf.add(tf.scalar(1e-6), tf.sub(tf.scalar(1), tf.square(action)))),
+        -1
+      )
+      const logProb = tf.sub(logProbRaw, tanhCorrection)  // [N]
+
+      const value = tf.squeeze(this.critic.predict(obsTensor), -1) // [N]
+
+      return {
+        action: action.clone(),
+        value: value.clone(),
+        logProb: logProb.clone(),
+      }
+    })
+
+    const [actionData, valueData, logProbData] = await Promise.all([
+      tensors.action.data(),
+      tensors.value.data(),
+      tensors.logProb.data(),
+    ])
+
+    tensors.action.dispose()
+    tensors.value.dispose()
+    tensors.logProb.dispose()
+
+    // Slice actionData into per-env Float32Arrays
+    const actions = new Array(N)
+    for (let i = 0; i < N; i++) {
+      actions[i] = new Float32Array(actionData.buffer, actionData.byteOffset + i * this.actionSize * 4, this.actionSize)
+    }
+
+    return {
+      actions,                                    // [N][actionSize]
+      values: new Float32Array(valueData),        // [N]
+      logProbs: new Float32Array(logProbData),    // [N]
+    }
+  }
+
+  /**
+   * Store N transitions at once (one per vectorized env).
+   * @param {Array<Array<number>>} obsArray   - [N][obsSize]
+   * @param {Array<Float32Array>}  actions    - [N][actionSize]
+   * @param {Float32Array}         rewards    - [N]
+   * @param {Uint8Array}           dones      - [N]
+   * @param {Float32Array}         values     - [N]
+   * @param {Float32Array}         logProbs   - [N]
+   */
+  storeTransitions(obsArray, actions, rewards, dones, values, logProbs) {
+    for (let i = 0; i < obsArray.length; i++) {
+      this.buffer.obs.push(obsArray[i])
+      this.buffer.actions.push(Array.from(actions[i]))
+      this.buffer.rewards.push(rewards[i])
+      this.buffer.dones.push(dones[i] === 1)
+      this.buffer.values.push(values[i])
+      this.buffer.logProbs.push(logProbs[i])
+    }
+  }
+
   /** Deterministic action for evaluation/rendering (no noise) — scalar */
   actDeterministic(obs) {
     return tf.tidy(() => {

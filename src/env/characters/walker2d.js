@@ -36,8 +36,8 @@ export const WALKER2D = {
       spawnY: 1.30,
       spawnAngle: 0.0,
       // Termination: if torso falls below this y or tilts past this angle, episode ends
-      minY: 0.6,
-      maxAngle: 0.5,   // ~29 degrees
+      minY: 0.5,
+      maxAngle: 0.8,   // ~46 degrees — wider tolerance for early exploration
     },
     {
       id: 'left_thigh',
@@ -96,15 +96,14 @@ export const WALKER2D = {
       id: 'left_hip',
       bodyA: 'torso',
       bodyB: 'left_thigh',
-      // Anchor positions in each body's local frame (relative to body center)
       anchorA: [0.05, -0.20],   // bottom-left of torso
       anchorB: [0.0,   0.175],  // top of thigh
       lowerLimit: -0.698,  // -40°
       upperLimit:  0.698,  //  40°
-      maxTorque: 200.0,
-      maxVelocity: 15.0,
+      maxTorque: 250.0,
+      maxVelocity: 10.0,
       stiffness: 0,
-      damping: 0,
+      damping: 5.0,
     },
     {
       id: 'left_knee',
@@ -114,10 +113,10 @@ export const WALKER2D = {
       anchorB: [0.0,  0.150],   // top of shin
       lowerLimit: -1.396,  // -80° (knee bends backward)
       upperLimit:  0.0,    //   0° (can't hyperextend)
-      maxTorque: 200.0,
-      maxVelocity: 15.0,
+      maxTorque: 250.0,
+      maxVelocity: 10.0,
       stiffness: 0,
-      damping: 0,
+      damping: 5.0,
     },
     {
       id: 'right_hip',
@@ -127,10 +126,10 @@ export const WALKER2D = {
       anchorB: [0.0,    0.175], // top of thigh
       lowerLimit: -0.698,  // -40°
       upperLimit:  0.698,  //  40°
-      maxTorque: 200.0,
-      maxVelocity: 15.0,
+      maxTorque: 100.0,
+      maxVelocity: 10.0,
       stiffness: 0,
-      damping: 0,
+      damping: 5.0,
     },
     {
       id: 'right_knee',
@@ -140,10 +139,10 @@ export const WALKER2D = {
       anchorB: [0.0,  0.150],   // top of shin
       lowerLimit: -1.396,  // -80°
       upperLimit:  0.0,    //   0°
-      maxTorque: 200.0,
-      maxVelocity: 15.0,
+      maxTorque: 100.0,
+      maxVelocity: 10.0,
       stiffness: 0,
-      damping: 0,
+      damping: 5.0,
     },
   ],
 
@@ -167,8 +166,8 @@ export const WALKER2D = {
     forwardVelWeight: 1.0,
     aliveBonusWeight: 1.0,
     ctrlCostWeight: 0.001,
-    terminationPenalty: 100.0,
-    healthyYMin: 0.6,
-    healthyAngleMax: 0.5,
+    terminationPenalty: 50.0,
+    healthyYMin: 0.5,
+    healthyAngleMax: 0.8,
   },
 }

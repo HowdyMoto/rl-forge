@@ -35,9 +35,9 @@ const ENV_CONFIGS = {
   acrobot: {
     label: 'Acrobot',
     desc: 'Double pendulum · 10 obs · 2 actions',
-    solvedThreshold: 800,
-    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 512, numEpochs: 10 },
-    tooltip: 'Inverted double pendulum balance (Rapier2D). Two links hang from a fixed pivot — only the elbow joint is actuated. The agent must keep both links balanced above a height threshold. 10D observation, 1 effective action. Solved at mean reward ≥ 800.',
+    solvedThreshold: 500,
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, numEpochs: 10 },
+    tooltip: 'Swing-up double pendulum (Rapier2D). Two links hang from a fixed pivot — only the elbow joint is actuated. The agent must pump energy to swing the tip above the pivot. 10D observation, 1 effective action. Solved at mean reward ≥ 500.',
   },
 }
 
@@ -369,7 +369,7 @@ export default function App() {
     cartpole: { actor: '4 → 64 → 64 → 1', obs: '[x, ẋ, θ, θ̇]', actions: 'force' },
     hopper: { actor: '10 → 128 → 128 → 2', obs: '[y, θ, vx, vy, ω, hip∠, hip·ω, knee∠, knee·ω, contact]', actions: '[τ_hip, τ_knee]' },
     walker2d: { actor: '15 → 128 → 128 → 4', obs: '[y, θ, vx, vy, ω, 4×(j∠, j·ω), Lcontact, Rcontact]', actions: '[τ_lhip, τ_lknee, τ_rhip, τ_rknee]' },
-    acrobot: { actor: '10 → 64 → 64 → 2', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[0, τ_elbow]' },
+    acrobot: { actor: '10 → 64 → 64 → 2', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[—, τ_elbow]' },
   }
   const networkDesc = NETWORK_DESCS[envType]
 

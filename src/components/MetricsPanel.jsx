@@ -43,6 +43,7 @@ export default function MetricsPanel({ metrics, episodes, status, backend }) {
       {latest?.timing && (
         <div style={{ gridColumn: '1 / -1', marginTop: 4, display: 'flex', gap: 12, fontSize: 10, color: 'rgba(255,255,255,0.40)', fontFamily: '"DM Mono", monospace' }}>
           <span style={{ color: '#e2b96f' }}>{latest.timing.stepsPerSec.toLocaleString()} steps/s</span>
+          {latest.timing.numEnvs > 1 && <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.numEnvs} envs</span>}
           <span>inference <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.inferenceMs}ms</span></span>
           <span>physics <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.physicsMs}ms</span></span>
           <span>update <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.updateMs}ms</span></span>

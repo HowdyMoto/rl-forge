@@ -103,8 +103,8 @@ export default function AcrobotRenderer({ snapshot, episodeReward, episodeSteps 
     // Anchor position determines the viewport center — no camera follow
     const camX = 0
 
-    // Place the anchor pivot near 40% from the top so the pendulum has room to swing
-    const PIVOT_SCREEN_Y = Math.round(H * 0.35)
+    // Center the pivot vertically — pendulum swings both below and above
+    const PIVOT_SCREEN_Y = Math.round(H * 0.5)
     const ANCHOR_WORLD_Y = 2.0  // matches anchor spawnY
 
     // World -> canvas transform (pivot-centered)
@@ -191,10 +191,10 @@ export default function AcrobotRenderer({ snapshot, episodeReward, episodeSteps 
       drawJointDot(ctx, sx, sy)
     }
 
-    // Draw a faint "goal line" at the height threshold (minY = 1.5)
+    // Draw a faint "goal line" at the anchor height (swing-up target)
     {
-      const { sy: goalY } = ws(0, 1.5)
-      ctx.strokeStyle = 'rgba(255,100,100,0.15)'
+      const { sy: goalY } = ws(0, 2.0)
+      ctx.strokeStyle = 'rgba(100,255,100,0.15)'
       ctx.lineWidth = 1
       ctx.setLineDash([6, 6])
       ctx.beginPath()
@@ -203,10 +203,10 @@ export default function AcrobotRenderer({ snapshot, episodeReward, episodeSteps 
       ctx.stroke()
       ctx.setLineDash([])
 
-      ctx.fillStyle = 'rgba(255,100,100,0.2)'
+      ctx.fillStyle = 'rgba(100,255,100,0.2)'
       ctx.font = '500 9px "DM Mono", monospace'
       ctx.textAlign = 'right'
-      ctx.fillText('min height', W - 8, goalY - 4)
+      ctx.fillText('pivot height', W - 8, goalY - 4)
     }
 
     // HUD

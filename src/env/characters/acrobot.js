@@ -1,9 +1,9 @@
 /**
- * Acrobot (inverted double pendulum) character definition.
+ * Acrobot (swing-up double pendulum) character definition.
  *
- * A double pendulum hung from a fixed point. The top joint (shoulder) is
+ * A double pendulum hangs from a fixed point. The top joint (shoulder) is
  * passive (unactuated); only the elbow joint between link1 and link2 has
- * torque. The task is to balance the pendulum in the inverted position.
+ * torque. The task is to swing the tip UP above the anchor height.
  *
  * Coordinate system: +x = right, +y = up
  * All sizes in meters, masses in kg, angles in radians.
@@ -14,14 +14,13 @@
  *
  * The body named "torso" is the anchor — RapierEnv._getObs() hardcodes
  * this.bodies['torso'] for the observation vector.  forwardBody is set
- * to "link2" so that health / termination checks use the tip of the
- * pendulum (it must stay above minY to survive).
+ * to "link2" so that reward uses the tip of the pendulum.
  *
  * Observations (10D):
- *   [torso.y, torso.angle, torso.vx, torso.vy, torso.angVel,   -- anchor (near-constant)
+ *   [torso.y, torso.angle, torso.vx, torso.vy, torso.angVel,
  *    shoulder.angle, shoulder.angVel,
  *    elbow.angle, elbow.angVel,
- *    foot_contact]                                               -- always 0 (ground far below)
+ *    foot_contact]
  *
  * Actions (2D):
  *   [shoulder_torque, elbow_torque]
@@ -41,19 +40,19 @@ export const ACROBOT = {
 
   bodies: [
     {
-      // Heavy anchor acting as a fixed pivot point
+      // Fixed anchor acting as the pivot point
       // Named "torso" so RapierEnv._getObs() can find it
       id: 'torso',
       shape: 'box',
       w: 0.08,
       h: 0.08,
-      mass: 1000,
+      mass: 1,
+      fixed: true,
       friction: 0,
       restitution: 0,
       spawnX: 0,
       spawnY: 2.0,
       spawnAngle: 0,
-      // Not used for termination (forwardBody is link2)
       minY: -100,
       maxAngle: 100,
     },
@@ -66,8 +65,8 @@ export const ACROBOT = {
       friction: 0.3,
       restitution: 0,
       spawnX: 0,
-      spawnY: 2.25,      // center of link1, above anchor
-      spawnAngle: 0,      // vertical (pointing up when inverted)
+      spawnY: 1.75,       // center of link1, hanging below anchor
+      spawnAngle: Math.PI, // flipped so local bottom is pinned at top
     },
     {
       id: 'link2',
@@ -78,12 +77,12 @@ export const ACROBOT = {
       friction: 0.3,
       restitution: 0,
       spawnX: 0,
-      spawnY: 2.75,      // center of link2, above link1
-      spawnAngle: 0,
-      isFootBody: true,   // needed so footSensorHandle is not null
-      // Termination thresholds (checked via forwardBody = 'link2')
-      minY: 1.5,          // if link2 center drops below 1.5m, episode ends
-      maxAngle: 6.3,      // effectively no angle limit (> 2*pi)
+      spawnY: 1.25,       // center of link2, hanging below link1
+      spawnAngle: Math.PI, // flipped
+      isFootBody: true,    // needed so footSensorHandle is not null
+      // No early termination — let it swing freely
+      minY: -100,
+      maxAngle: 100,
     },
   ],
 
@@ -94,8 +93,8 @@ export const ACROBOT = {
       bodyB: 'link1',
       anchorA: [0, 0],      // center of anchor
       anchorB: [0, -0.25],  // bottom of link1
-      lowerLimit: -Math.PI,
-      upperLimit: Math.PI,
+      lowerLimit: -Math.PI * 2,
+      upperLimit: Math.PI * 2,
       maxTorque: 0,         // PASSIVE -- unactuated joint
       maxVelocity: 15.0,
       stiffness: 0,
@@ -107,32 +106,30 @@ export const ACROBOT = {
       bodyB: 'link2',
       anchorA: [0, 0.25],   // top of link1
       anchorB: [0, -0.25],  // bottom of link2
-      lowerLimit: -Math.PI,
-      upperLimit: Math.PI,
-      maxTorque: 5.0,       // ACTUATED -- only this joint has torque
+      lowerLimit: -Math.PI * 2,
+      upperLimit: Math.PI * 2,
+      maxTorque: 10.0,      // ACTUATED -- only this joint has torque
       maxVelocity: 15.0,
       stiffness: 0,
       damping: 0,
     },
   ],
 
-  // Health / forward-velocity checks use link2 (the tip body)
+  // Reward / health checks use link2 (the tip body)
   forwardBody: 'link2',
 
-  // obs = [torso.y, torso.angle, torso.vx, torso.vy, torso.angVel,
-  //        shoulder.angle, shoulder.angVel, elbow.angle, elbow.angVel,
-  //        foot_contact]
   obsSize: 10,
-  // actions = [shoulder_torque (zeroed), elbow_torque] in [-1,1]
   actionSize: 2,
 
-  // Reward: survive as long as possible in the inverted position
+  // Reward: swing the tip as high as possible
   defaultReward: {
     forwardVelWeight: 0,        // no forward locomotion goal
-    aliveBonusWeight: 1.0,      // +1 per step for staying balanced
+    aliveBonusWeight: 0,        // no alive bonus (never terminates early)
     ctrlCostWeight: 0.001,      // small penalty for torque use
-    terminationPenalty: 50.0,   // penalty when link2 drops below minY
-    healthyYMin: 1.5,
-    healthyAngleMax: 6.3,
+    terminationPenalty: 0,      // no termination penalty
+    tipHeightWeight: 1.0,       // reward = (link2.y - anchorY) per step
+    anchorY: 2.0,               // y position of the pivot
+    healthyYMin: -100,
+    healthyAngleMax: 100,
   },
 }

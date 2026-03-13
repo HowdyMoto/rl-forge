@@ -24,6 +24,7 @@
 import * as tf from '@tensorflow/tfjs'
 import '@tensorflow/tfjs-backend-webgpu'
 import { CartPoleEnv } from '../env/cartpole.js'
+import { VecEnv } from '../env/vecEnv.js'
 import { PPOAgent } from './ppo.js'
 
 let paused = false
@@ -70,16 +71,16 @@ async function initTFBackend() {
   return { backend: 'cpu', deviceName: '' }
 }
 
+/** Character def loaders for Rapier-based environments */
+const RAPIER_ENVS = {
+  hopper: () => import('../env/characters/hopper.js').then(m => m.HOPPER),
+  walker2d: () => import('../env/characters/walker2d.js').then(m => m.WALKER2D),
+  acrobot: () => import('../env/characters/acrobot.js').then(m => m.ACROBOT),
+}
+
 async function initEnv(envType) {
   if (envType === 'cartpole') {
     return new CartPoleEnv()
-  }
-
-  // All Rapier-based environments
-  const RAPIER_ENVS = {
-    hopper: () => import('../env/characters/hopper.js').then(m => m.HOPPER),
-    walker2d: () => import('../env/characters/walker2d.js').then(m => m.WALKER2D),
-    acrobot: () => import('../env/characters/acrobot.js').then(m => m.ACROBOT),
   }
 
   if (RAPIER_ENVS[envType]) {
@@ -94,17 +95,168 @@ async function initEnv(envType) {
   throw new Error(`Unknown env: ${envType}`)
 }
 
+/**
+ * Create a VecEnv with N copies of a Rapier environment.
+ * WASM must already be initialized before calling this.
+ */
+async function initVecEnv(envType, numEnvs) {
+  const { RapierEnv } = await import('../env/rapierEnv.js')
+  const charDef = await RAPIER_ENVS[envType]()
+  return new VecEnv(() => new RapierEnv(charDef), numEnvs)
+}
+
+/** Default number of parallel envs for vectorized training */
+const DEFAULT_NUM_ENVS = 8
+
 async function runTraining(config) {
-  const { envType = 'cartpole', ppoConfig = {}, maxUpdates = 3000 } = config
+  const { envType = 'cartpole', ppoConfig = {}, maxUpdates = 3000, numEnvs = DEFAULT_NUM_ENVS } = config
 
   const { backend: tfBackend, deviceName } = await initTFBackend()
   postMessage({ type: 'BACKEND', backend: tfBackend, deviceName })
 
-  env = await initEnv(envType)
-  postMessage({ type: 'STATUS', msg: `${envType} ready` })
+  const useVecEnv = RAPIER_ENVS[envType] != null
 
-  agent = new PPOAgent(env.observationSize, env.actionSize, ppoConfig)
+  if (useVecEnv) {
+    // Initialize Rapier WASM once, then create vectorized envs
+    await import('@dimforge/rapier2d')
+    postMessage({ type: 'STATUS', msg: 'Rapier WASM ready' })
+    env = await initVecEnv(envType, numEnvs)
+    postMessage({ type: 'STATUS', msg: `${envType} ready · ${numEnvs} envs` })
+  } else {
+    env = await initEnv(envType)
+    postMessage({ type: 'STATUS', msg: `${envType} ready` })
+  }
 
+  const obsSize = useVecEnv ? env.observationSize : env.observationSize
+  const actSize = useVecEnv ? env.actionSize : env.actionSize
+  agent = new PPOAgent(obsSize, actSize, ppoConfig)
+
+  if (useVecEnv) {
+    await runVectorizedLoop(envType, maxUpdates, numEnvs)
+  } else {
+    await runSingleEnvLoop(envType, maxUpdates)
+  }
+
+  env.dispose?.()
+  postMessage({ type: 'STATUS', msg: stopped ? 'Stopped' : 'Training complete' })
+}
+
+/**
+ * Vectorized training loop for Rapier-based envs.
+ * N envs step in lockstep, one batched GPU forward pass per step.
+ */
+async function runVectorizedLoop(envType, maxUpdates, numEnvs) {
+  let totalSteps = 0
+  let totalEpisodes = 0
+  let updateCount = 0
+  let episodeRewards = []
+  let lastRenderTime = 0
+  const RENDER_INTERVAL_MS = 16
+
+  // Per-env episode tracking
+  const epRewards = new Float32Array(numEnvs)
+  const epSteps = new Uint32Array(numEnvs)
+
+  let obsArray = env.resetAll()  // [N][obsSize]
+  postMessage({ type: 'STATUS', msg: 'Training started' })
+
+  // Timing accumulators
+  let t_inference = 0
+  let t_physics = 0
+  let t_update = 0
+  let t_rolloutStart = performance.now()
+
+  while (!stopped && updateCount < maxUpdates) {
+    while (paused && !stopped) await new Promise(r => setTimeout(r, 100))
+    if (stopped) break
+
+    // One batched GPU forward pass for all N observations
+    const t0 = performance.now()
+    const { actions, values, logProbs } = await agent.actBatch(obsArray)
+    const t1 = performance.now()
+    t_inference += t1 - t0
+
+    // Step all N envs (sequential physics, but amortized GPU cost)
+    const { obs: nextObsArray, rewards, dones } = env.stepAll(actions)
+    const t2 = performance.now()
+    t_physics += t2 - t1
+
+    // Store N transitions at once
+    agent.storeTransitions(obsArray, actions, rewards, dones, values, logProbs)
+    totalSteps += numEnvs
+
+    // Per-env episode tracking
+    for (let i = 0; i < numEnvs; i++) {
+      epRewards[i] += rewards[i]
+      epSteps[i]++
+      if (dones[i]) {
+        episodeRewards.push(epRewards[i])
+        postMessage({ type: 'EPISODE', data: { episode: totalEpisodes, reward: epRewards[i], steps: epSteps[i], totalSteps } })
+        epRewards[i] = 0
+        epSteps[i] = 0
+        totalEpisodes++
+      }
+    }
+
+    // Render from env[0] at ~60fps
+    const now = performance.now()
+    if (now - lastRenderTime >= RENDER_INTERVAL_MS) {
+      lastRenderTime = now
+      postMessage({
+        type: 'RENDER_SNAPSHOT',
+        snapshot: env.getRenderSnapshot(),
+        episodeReward: epRewards[0],
+        episodeSteps: epSteps[0],
+      })
+    }
+
+    obsArray = nextObsArray
+
+    if (agent.bufferFull) {
+      // For GAE bootstrap, use env[0]'s current obs
+      const tUpdateStart = performance.now()
+      const metrics = await agent.update(obsArray[0])
+      const tUpdateEnd = performance.now()
+      t_update = tUpdateEnd - tUpdateStart
+      updateCount++
+
+      const t_rolloutTotal = tUpdateStart - t_rolloutStart
+      const totalMs = tUpdateEnd - t_rolloutStart
+      const stepsInBuffer = agent.cfg.stepsPerUpdate
+      const stepsPerSec = Math.round(stepsInBuffer / (totalMs / 1000))
+      const timing = {
+        rolloutMs: Math.round(t_rolloutTotal),
+        inferenceMs: Math.round(t_inference),
+        physicsMs: Math.round(t_physics),
+        updateMs: Math.round(t_update),
+        totalMs: Math.round(totalMs),
+        stepsPerSec,
+        numEnvs,
+      }
+      console.log(`[perf] update ${updateCount} (${numEnvs} envs): rollout ${timing.rolloutMs}ms (inference ${timing.inferenceMs}ms + physics ${timing.physicsMs}ms) | PPO update ${timing.updateMs}ms | ${stepsPerSec} steps/s`)
+
+      t_inference = 0
+      t_physics = 0
+      t_rolloutStart = performance.now()
+
+      const recent = episodeRewards.slice(-20)
+      const meanReward = recent.length > 0 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0
+
+      postMessage({
+        type: 'METRICS',
+        data: { update: updateCount, totalSteps, totalEpisodes, meanReward20: meanReward, ...metrics, timing, tensorMemory: tf.memory().numTensors }
+      })
+
+      await new Promise(r => setTimeout(r, 0))
+    }
+  }
+}
+
+/**
+ * Single-env training loop (CartPole and other non-vectorized envs).
+ * Preserved from the original implementation.
+ */
+async function runSingleEnvLoop(envType, maxUpdates) {
   let totalSteps = 0
   let totalEpisodes = 0
   let updateCount = 0
@@ -112,29 +264,27 @@ async function runTraining(config) {
   let episodeSteps = 0
   let episodeRewards = []
   let lastRenderTime = 0
-  const RENDER_INTERVAL_MS = 16  // ~60fps time-based throttle
+  const RENDER_INTERVAL_MS = 16
 
   let obs = env.reset()
   postMessage({ type: 'STATUS', msg: 'Training started' })
 
-  // Timing accumulators (reset each PPO update)
-  let t_inference = 0   // GPU forward pass
-  let t_physics = 0     // env.step()
-  let t_update = 0      // PPO backprop
+  let t_inference = 0
+  let t_physics = 0
+  let t_update = 0
   let t_rolloutStart = performance.now()
 
   while (!stopped && updateCount < maxUpdates) {
     while (paused && !stopped) await new Promise(r => setTimeout(r, 100))
     if (stopped) break
 
-    // Multi-action envs use actMulti; scalar (cartpole) uses act
     const isMultiAction = env.actionSize > 1
     let actionForEnv, storedAction, value, logProb
 
     const t0 = performance.now()
     if (isMultiAction) {
       const result = await agent.actMulti(obs)
-      actionForEnv = result.actions    // Float32Array
+      actionForEnv = result.actions
       storedAction = Array.from(result.actions)
       value = result.value
       logProb = result.logProb
@@ -157,7 +307,6 @@ async function runTraining(config) {
     episodeSteps++
     totalSteps++
 
-    // Time-based render throttle (~60fps) instead of every N steps
     const now = performance.now()
     if (now - lastRenderTime >= RENDER_INTERVAL_MS) {
       lastRenderTime = now
@@ -191,7 +340,7 @@ async function runTraining(config) {
 
     if (agent.bufferFull) {
       const tUpdateStart = performance.now()
-      const metrics = await agent.update(obs, envType === 'hopper')
+      const metrics = await agent.update(obs)
       const tUpdateEnd = performance.now()
       t_update = tUpdateEnd - tUpdateStart
       updateCount++
@@ -209,7 +358,6 @@ async function runTraining(config) {
       }
       console.log(`[perf] update ${updateCount}: rollout ${timing.rolloutMs}ms (inference ${timing.inferenceMs}ms + physics ${timing.physicsMs}ms + other ${Math.round(t_rolloutTotal - t_inference - t_physics)}ms) | PPO update ${timing.updateMs}ms | total ${timing.totalMs}ms`)
 
-      // Reset accumulators
       t_inference = 0
       t_physics = 0
       t_rolloutStart = performance.now()
@@ -225,9 +373,6 @@ async function runTraining(config) {
       await new Promise(r => setTimeout(r, 0))
     }
   }
-
-  env.dispose?.()
-  postMessage({ type: 'STATUS', msg: stopped ? 'Stopped' : 'Training complete' })
 }
 
 async function runPlayback(config) {
