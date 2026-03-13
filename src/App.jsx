@@ -3,14 +3,25 @@ import CartPoleRenderer from './components/CartPoleRenderer.jsx'
 import HopperRenderer from './components/HopperRenderer.jsx'
 import Walker2DRenderer from './components/Walker2DRenderer.jsx'
 import AcrobotRenderer from './components/AcrobotRenderer.jsx'
+import TerrainRenderer from './components/TerrainRenderer.jsx'
+import CreatureBuilder from './components/CreatureBuilder.jsx'
+import SharePanel from './components/SharePanel.jsx'
 import RewardChart from './components/RewardChart.jsx'
 import TrainingCharts from './components/TrainingCharts.jsx'
 import MetricsPanel from './components/MetricsPanel.jsx'
 import HyperParams from './components/HyperParams.jsx'
 import Tooltip from './components/Tooltip.jsx'
 import { DEFAULT_PPO_CONFIG } from './rl/ppo.js'
+import { decodeShareString } from './components/SharePanel.jsx'
 
 const ENV_CONFIGS = {
+  terrain: {
+    label: 'Terrain',
+    desc: 'Build & train creatures on terrain',
+    solvedThreshold: 500,
+    ppoOverrides: { hiddenSizes: [128, 128], stepsPerUpdate: 2048, numEpochs: 10, learningRate: 3e-4 },
+    tooltip: 'Terrain platformer with PD-controlled creatures. Build a body in the creature builder, then train it to traverse procedurally generated terrain. Uses target joint angles (PD control) for smooth, natural-looking motion. Inspired by Peng et al. TerrainRL.',
+  },
   cartpole: {
     label: 'CartPole',
     desc: 'Inverted pendulum · 4 obs · 1 action',
@@ -46,12 +57,14 @@ const TOOLTIPS = {
   trainingMetrics: 'Key scalars logged after each policy update: reward trend, losses, and entropy. Useful for diagnosing training problems — e.g., flat reward with rising entropy often indicates poor exploration.',
   hyperparameters: 'The knobs that control PPO training dynamics. Locked during a run; set them before hitting Train. Defaults are reasonable starting points — most experiments only need learning rate tuning.',
   network: 'The neural network architecture for this environment. Actor and Critic are separate MLPs with the same hidden width but independent weights.',
-  actor: 'The policy network π(a|s). Takes an observation vector and outputs action parameters — for continuous actions, the mean (and log-std) of a Gaussian. During training, actions are sampled from this distribution.',
-  critic: 'The value network V(s). Estimates expected future return from the current state. Used only during training to compute advantage estimates A = R − V(s). Not used at inference time.',
-  obs: 'Observation vector — the raw state representation fed to both the actor and critic at each timestep.',
-  act: 'Action output from the actor. For CartPole: scalar horizontal force. For Hopper/Walker2D: continuous joint torques.',
-  solved: 'The rolling mean reward over the last 20 episodes has exceeded the benchmark threshold. The agent has learned a reliably successful policy.',
+  actor: 'The policy network. Takes an observation vector and outputs action parameters — for terrain mode, target joint angles driven by PD controllers.',
+  critic: 'The value network V(s). Estimates expected future return from the current state. Used only during training to compute advantage estimates.',
+  obs: 'Observation vector — body state, joint angles/velocities, foot contacts, and terrain heightfield.',
+  act: 'Action output from the actor. For terrain mode: target joint angles (PD controllers convert these to smooth torques).',
+  solved: 'The rolling mean reward over the last 20 episodes has exceeded the benchmark threshold.',
   avgPill: 'Current rolling mean reward (last 20 episodes) vs. the solved threshold for this environment.',
+  creatureBuilder: 'Design your creature body. Pick a preset or customize body part sizes and masses. The creature will learn to traverse terrain using PD-controlled joints.',
+  share: 'Save your creature design as a file, copy a share link, or load a friend\'s creature.',
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -222,12 +235,11 @@ const TRAINING_STATES = { IDLE: 'idle', RUNNING: 'running', PAUSED: 'paused' }
 
 export default function App() {
   const workerRef = useRef(null)
-  const [envType, setEnvType] = useState('cartpole')
+  const [envType, setEnvType] = useState('terrain')
   const [trainingState, setTrainingState] = useState(TRAINING_STATES.IDLE)
 
-  // CartPole render state
+  // Render states
   const [cartpoleState, setCartpoleState] = useState(null)
-  // Hopper render state
   const [hopperSnapshot, setHopperSnapshot] = useState(null)
 
   const [episodeReward, setEpisodeReward] = useState(0)
@@ -241,7 +253,29 @@ export default function App() {
   const [selectedTab, setSelectedTab] = useState('sim')
   const fileInputRef = useRef(null)
 
+  // Creature builder state
+  const [customCharDef, setCustomCharDef] = useState(null)
+  const [bestDistance, setBestDistance] = useState(0)
+
   const isRunning = trainingState === TRAINING_STATES.RUNNING
+  const isTerrainMode = envType === 'terrain'
+
+  // Check for shared creature in URL on load
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const creatureParam = params.get('creature')
+      if (creatureParam) {
+        const pkg = decodeShareString(creatureParam)
+        if (pkg.creature) {
+          setCustomCharDef(pkg.creature)
+          setEnvType('terrain')
+          // Clean URL
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+      }
+    } catch { /* ignore invalid share links */ }
+  }, [])
 
   const initWorker = useCallback(() => {
     if (workerRef.current) workerRef.current.terminate()
@@ -261,6 +295,10 @@ export default function App() {
           setHopperSnapshot(msg.snapshot)
           setEpisodeReward(msg.episodeReward)
           setEpisodeSteps(msg.episodeSteps)
+          // Track best distance for terrain mode
+          if (msg.snapshot?._maxDistance) {
+            setBestDistance(prev => Math.max(prev, msg.snapshot._maxDistance))
+          }
           break
         case 'METRICS':
           setMetrics(prev => [...prev.slice(-300), msg.data])
@@ -295,17 +333,22 @@ export default function App() {
     setCartpoleState(null)
     setHopperSnapshot(null)
     setExportUrl(null)
+    setBestDistance(0)
     setTrainingState(TRAINING_STATES.RUNNING)
 
     const envCfg = ENV_CONFIGS[envType]
-    worker.postMessage({
-      type: 'START',
-      config: {
-        envType,
-        ppoConfig: { ...ppoConfig, ...envCfg.ppoOverrides },
-        maxUpdates: 3000,
-      }
-    })
+    const config = {
+      envType,
+      ppoConfig: { ...ppoConfig, ...envCfg.ppoOverrides },
+      maxUpdates: 3000,
+    }
+
+    // Pass custom character definition for terrain mode
+    if (isTerrainMode && customCharDef) {
+      config.charDef = customCharDef
+    }
+
+    worker.postMessage({ type: 'START', config })
   }
 
   const handlePause = () => {
@@ -340,38 +383,67 @@ export default function App() {
       setSelectedTab('sim')
 
       const envCfg = ENV_CONFIGS[envType]
-      worker.postMessage({
-        type: 'PLAYBACK',
-        config: {
-          envType,
-          ppoConfig: { ...ppoConfig, ...envCfg.ppoOverrides },
-          weights,
-        }
-      })
+      const config = {
+        envType,
+        ppoConfig: { ...ppoConfig, ...envCfg.ppoOverrides },
+        weights,
+      }
+      if (isTerrainMode && customCharDef) {
+        config.charDef = customCharDef
+      }
+      worker.postMessage({ type: 'PLAYBACK', config })
     }
     reader.readAsText(file)
+  }
+
+  const handleImportCreature = (pkg) => {
+    if (pkg.creature) {
+      setCustomCharDef(pkg.creature)
+      setEnvType('terrain')
+    }
   }
 
   const latestReward = metrics[metrics.length - 1]?.meanReward20 ?? 0
   const solvedThreshold = ENV_CONFIGS[envType].solvedThreshold
   const isSolved = latestReward >= solvedThreshold
 
+  // Renderer selection
   const renderSnapshotProps = { snapshot: hopperSnapshot, episodeReward, episodeSteps }
-  const RENDERERS = {
-    cartpole: <CartPoleRenderer state={cartpoleState} episodeReward={episodeReward} episodeSteps={episodeSteps} />,
-    hopper: <HopperRenderer {...renderSnapshotProps} />,
-    walker2d: <Walker2DRenderer {...renderSnapshotProps} />,
-    acrobot: <AcrobotRenderer {...renderSnapshotProps} />,
+  let simContent
+  if (envType === 'terrain') {
+    simContent = <TerrainRenderer {...renderSnapshotProps} charDef={customCharDef} />
+  } else if (envType === 'cartpole') {
+    simContent = <CartPoleRenderer state={cartpoleState} episodeReward={episodeReward} episodeSteps={episodeSteps} />
+  } else if (envType === 'hopper') {
+    simContent = <HopperRenderer {...renderSnapshotProps} />
+  } else if (envType === 'walker2d') {
+    simContent = <Walker2DRenderer {...renderSnapshotProps} />
+  } else if (envType === 'acrobot') {
+    simContent = <AcrobotRenderer {...renderSnapshotProps} />
   }
-  const simContent = RENDERERS[envType]
 
-  const NETWORK_DESCS = {
-    cartpole: { actor: '4 → 64 → 64 → 1', obs: '[x, ẋ, θ, θ̇]', actions: 'force' },
-    hopper: { actor: '10 → 128 → 128 → 2', obs: '[y, θ, vx, vy, ω, hip∠, hip·ω, knee∠, knee·ω, contact]', actions: '[τ_hip, τ_knee]' },
-    walker2d: { actor: '15 → 128 → 128 → 4', obs: '[y, θ, vx, vy, ω, 4×(j∠, j·ω), Lcontact, Rcontact]', actions: '[τ_lhip, τ_lknee, τ_rhip, τ_rknee]' },
-    acrobot: { actor: '10 → 64 → 64 → 2', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[—, τ_elbow]' },
+  // Network description
+  const getNetworkDesc = () => {
+    if (isTerrainMode && customCharDef) {
+      const obs = customCharDef.obsSize || '?'
+      const act = customCharDef.actionSize || '?'
+      return {
+        actor: `${obs} → 128 → 128 → ${act}`,
+        obs: `[h, θ, vx, vy, ω, joints, contacts, terrain]`,
+        actions: `[${act} target angles → PD control]`,
+      }
+    }
+    const descs = {
+      cartpole: { actor: '4 → 64 → 64 → 1', obs: '[x, ẋ, θ, θ̇]', actions: 'force' },
+      hopper: { actor: '10 → 128 → 128 → 2', obs: '[y, θ, vx, vy, ω, hip∠, hip·ω, knee∠, knee·ω, contact]', actions: '[τ_hip, τ_knee]' },
+      walker2d: { actor: '15 → 128 → 128 → 4', obs: '[y, θ, vx, vy, ω, 4×(j∠, j·ω), Lcontact, Rcontact]', actions: '[τ_lhip, τ_lknee, τ_rhip, τ_rknee]' },
+      acrobot: { actor: '10 → 64 → 64 → 2', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[—, τ_elbow]' },
+    }
+    return descs[envType] || descs.cartpole
   }
-  const networkDesc = NETWORK_DESCS[envType]
+  const networkDesc = getNetworkDesc()
+
+  const trainLabel = isTerrainMode ? (customCharDef?.name || 'Creature') : ENV_CONFIGS[envType].label
 
   return (
     <>
@@ -405,11 +477,16 @@ export default function App() {
               RL<span style={{ color: 'var(--gold)' }}>Forge</span>
             </h1>
             <span style={{ fontSize: 10, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>
-              MILESTONE 2 · PHYSICS
+              MILESTONE 3 · TERRAIN
             </span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isTerrainMode && bestDistance > 0 && (
+              <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)' }}>
+                best: {bestDistance.toFixed(1)}m
+              </span>
+            )}
             {isSolved && (
               <span className="pill" style={{ background: 'rgba(74,222,128,0.12)', color: 'var(--green)', border: '1px solid rgba(74,222,128,0.2)', display: 'inline-flex', alignItems: 'center' }}>
                 ✓ solved
@@ -438,7 +515,7 @@ export default function App() {
                   <button
                     key={key}
                     className={`env-tab ${envType === key ? 'active' : ''}`}
-                    onClick={() => { setEnvType(key); setMetrics([]); setEpisodes(0) }}
+                    onClick={() => { setEnvType(key); setMetrics([]); setEpisodes(0); setBestDistance(0) }}
                     disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
                   >
                     <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
@@ -525,7 +602,7 @@ export default function App() {
                   disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
                   style={{ width: '100%', justifyContent: 'center', padding: '10px 14px', fontSize: 12 }}
                 >
-                  ▶ Train {ENV_CONFIGS[envType].label}
+                  ▶ Train {trainLabel}
                 </button>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -559,7 +636,7 @@ export default function App() {
                 </button>
 
                 {exportUrl && (
-                  <a href={exportUrl} download={`${envType}_policy.json`}
+                  <a href={exportUrl} download={`${customCharDef?.name || envType}_policy.json`}
                     style={{
                       display: 'block', textAlign: 'center', padding: '6px',
                       background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)',
@@ -567,7 +644,7 @@ export default function App() {
                       fontFamily: '"DM Mono", monospace', letterSpacing: '0.06em', textDecoration: 'none',
                     }}
                   >
-                    ↓ {envType}_policy.json ready
+                    ↓ {customCharDef?.name || envType}_policy.json ready
                   </a>
                 )}
 
@@ -589,27 +666,71 @@ export default function App() {
               </div>
             </div>
 
+            {/* Creature Builder (terrain mode only) */}
+            {isTerrainMode && (
+              <div className="panel" style={{ flex: '2 1 280px' }}>
+                <div className="panel-header">
+                  <span style={{ display: 'flex', alignItems: 'center' }}>
+                    ◧ creature builder
+                    <Tooltip text={TOOLTIPS.creatureBuilder} />
+                  </span>
+                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
+                    {isRunning ? 'LOCKED' : 'EDIT'}
+                  </span>
+                </div>
+                <div style={{ padding: '10px 12px' }}>
+                  <CreatureBuilder
+                    onCreatureChange={setCustomCharDef}
+                    disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Share panel (terrain mode only) */}
+            {isTerrainMode && (
+              <div className="panel">
+                <div className="panel-header">
+                  <span style={{ display: 'flex', alignItems: 'center' }}>
+                    ⎘ share
+                    <Tooltip text={TOOLTIPS.share} />
+                  </span>
+                </div>
+                <div style={{ padding: '10px 12px' }}>
+                  <SharePanel
+                    charDef={customCharDef}
+                    exportUrl={exportUrl}
+                    bestDistance={bestDistance}
+                    bestReward={latestReward}
+                    onImportCreature={handleImportCreature}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Hyperparameters */}
-            <div className="panel" style={{ flex: 1 }}>
-              <div className="panel-header">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  ◧ hyperparameters
-                  <Tooltip text={TOOLTIPS.hyperparameters} />
-                </span>
-                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
-                  {isRunning ? 'LOCKED' : 'EDIT BEFORE TRAIN'}
-                </span>
+            {!isTerrainMode && (
+              <div className="panel" style={{ flex: 1 }}>
+                <div className="panel-header">
+                  <span style={{ display: 'flex', alignItems: 'center' }}>
+                    ◧ hyperparameters
+                    <Tooltip text={TOOLTIPS.hyperparameters} />
+                  </span>
+                  <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
+                    {isRunning ? 'LOCKED' : 'EDIT BEFORE TRAIN'}
+                  </span>
+                </div>
+                <div style={{ padding: '14px 16px', overflowY: 'auto' }}>
+                  <HyperParams onChange={setPpoConfig} disabled={isRunning} />
+                </div>
               </div>
-              <div style={{ padding: '14px 16px', overflowY: 'auto' }}>
-                <HyperParams onChange={setPpoConfig} disabled={isRunning} />
-              </div>
-            </div>
+            )}
 
             {/* Network info */}
             <div className="panel">
               <div className="panel-header">
                 <span style={{ display: 'flex', alignItems: 'center' }}>
-                  ◫ network · {ENV_CONFIGS[envType].label}
+                  ◫ network · {trainLabel}
                   <Tooltip text={TOOLTIPS.network} />
                 </span>
               </div>
@@ -630,6 +751,11 @@ export default function App() {
                   act: {networkDesc.actions}
                   <Tooltip text={TOOLTIPS.act} />
                 </div>
+                {isTerrainMode && (
+                  <div style={{ color: 'rgba(74,222,128,0.5)', fontSize: 9, marginTop: 4 }}>
+                    PD control: kp=300 kd=30 · 120Hz physics · 30Hz policy
+                  </div>
+                )}
               </div>
             </div>
 
@@ -642,8 +768,8 @@ export default function App() {
           paddingTop: 12, borderTop: '1px solid var(--border)',
           fontSize: 9, color: 'rgba(255,255,255,0.15)', letterSpacing: '0.08em',
         }}>
-          <span>RLFORGE · M2 Rapier Physics</span>
-          <span>next: character authoring canvas · reward function builder</span>
+          <span>RLFORGE · M3 Terrain + Creature Builder</span>
+          <span>PD controllers · procedural terrain · share with friends</span>
         </footer>
 
       </div>
