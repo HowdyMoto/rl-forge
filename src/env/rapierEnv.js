@@ -20,8 +20,8 @@
 
 import RAPIER from '@dimforge/rapier2d'
 
-const SIM_DT = 1 / 60          // physics timestep: 60 Hz
-const SUBSTEPS = 2              // substeps per agent step
+const SIM_DT = 1 / 120         // physics timestep: 120 Hz
+const SUBSTEPS = 4              // substeps per agent step (30 Hz policy)
 const AGENT_DT = SIM_DT * SUBSTEPS
 
 // Gravity constant matching MuJoCo default
@@ -150,16 +150,16 @@ export class RapierEnv {
     this.stepCount = 0
     this._footContacts = {}
 
-    // Small random perturbation to break symmetry
+    // Random perturbation — larger noise forces the policy to learn recovery
     for (const bodyDef of def.bodies) {
       const rb = this.bodies[bodyDef.id]
       rb.setTranslation({
-        x: bodyDef.spawnX + (Math.random() - 0.5) * 0.01,
-        y: bodyDef.spawnY + (Math.random() - 0.5) * 0.01,
+        x: bodyDef.spawnX + (Math.random() - 0.5) * 0.1,
+        y: bodyDef.spawnY + (Math.random() - 0.5) * 0.05,
       }, true)
-      rb.setRotation(bodyDef.spawnAngle + (Math.random() - 0.5) * 0.02, true)
-      rb.setLinvel({ x: (Math.random() - 0.5) * 0.01, y: 0 }, true)
-      rb.setAngvel((Math.random() - 0.5) * 0.01, true)
+      rb.setRotation(bodyDef.spawnAngle + (Math.random() - 0.5) * 0.3, true)
+      rb.setLinvel({ x: (Math.random() - 0.5) * 0.5, y: (Math.random() - 0.5) * 0.3 }, true)
+      rb.setAngvel((Math.random() - 0.5) * 0.5, true)
     }
 
     this._prevTorsoX = this.bodies[def.forwardBody].translation().x

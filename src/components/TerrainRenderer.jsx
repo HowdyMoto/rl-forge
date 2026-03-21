@@ -81,11 +81,16 @@ function drawShape(ctx, sx, sy, angle, bodyDef, colors) {
   ctx.restore()
 }
 
-export default function TerrainRenderer({ snapshot, charDef, episodeReward, episodeSteps }) {
+export default function TerrainRenderer({ snapshot, charDef, episodeReward, episodeSteps, onDebugMouse }) {
   const canvasRef = useRef(null)
   const cameraXRef = useRef(0)
   const cameraYRef = useRef(0)
   const [canvasSize, setCanvasSize] = useState({ w: 500, h: 300 })
+
+  // Drag state for debug mode (refs so mouse handlers don't cause re-renders)
+  const dragRef = useRef({ active: false, bodyId: null, wx: 0, wy: 0, prevWx: 0, prevWy: 0, prevTime: 0 })
+  const snapshotRef = useRef(null)
+  snapshotRef.current = snapshot
 
   // Canvas resize observer
   useEffect(() => {
@@ -104,6 +109,109 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
     ro.observe(canvas)
     return () => ro.disconnect()
   }, [])
+
+  // Mouse interaction for debug mode drag-and-fling
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !onDebugMouse || !charDef) return
+
+    // Screen → world coordinate transform (inverse of ws)
+    const sw = (sx, sy) => {
+      const W = canvas.width
+      const H = canvas.height
+      const GSY = Math.round(H * 0.75)
+      return {
+        wx: cameraXRef.current + (sx - W / 2) / SCALE,
+        wy: cameraYRef.current + (GSY - sy) / SCALE,
+      }
+    }
+
+    // Find closest body to a world position
+    const findBody = (wx, wy) => {
+      const snap = snapshotRef.current
+      if (!snap) return null
+      let bestId = null
+      let bestDist = 0.3  // max grab distance in meters
+      for (const bodyDef of charDef.bodies) {
+        if (bodyDef.fixed) continue
+        const t = snap[bodyDef.id]
+        if (!t) continue
+        const dx = t.x - wx
+        const dy = t.y - wy
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < bestDist) {
+          bestDist = dist
+          bestId = bodyDef.id
+        }
+      }
+      return bestId
+    }
+
+    const getCanvasXY = (e) => {
+      const rect = canvas.getBoundingClientRect()
+      return {
+        sx: (e.clientX - rect.left) * (canvas.width / rect.width),
+        sy: (e.clientY - rect.top) * (canvas.height / rect.height),
+      }
+    }
+
+    const onMouseDown = (e) => {
+      const { sx, sy } = getCanvasXY(e)
+      const { wx, wy } = sw(sx, sy)
+      const bodyId = findBody(wx, wy)
+      if (bodyId) {
+        dragRef.current = { active: true, bodyId, wx, wy, prevWx: wx, prevWy: wy, prevTime: performance.now() }
+        onDebugMouse({ type: 'grab', bodyId, wx, wy })
+        canvas.style.cursor = 'grabbing'
+      }
+    }
+
+    const onMouseMove = (e) => {
+      if (!dragRef.current.active) {
+        // Hover cursor
+        const { sx, sy } = getCanvasXY(e)
+        const { wx, wy } = sw(sx, sy)
+        canvas.style.cursor = findBody(wx, wy) ? 'grab' : 'default'
+        return
+      }
+      const { sx, sy } = getCanvasXY(e)
+      const { wx, wy } = sw(sx, sy)
+      const now = performance.now()
+      dragRef.current.prevWx = dragRef.current.wx
+      dragRef.current.prevWy = dragRef.current.wy
+      dragRef.current.prevTime = now
+      dragRef.current.wx = wx
+      dragRef.current.wy = wy
+      onDebugMouse({ type: 'drag', bodyId: dragRef.current.bodyId, wx, wy })
+    }
+
+    const onMouseUp = () => {
+      if (!dragRef.current.active) return
+      const d = dragRef.current
+      const dt = Math.max(1, performance.now() - d.prevTime) / 1000
+      const vx = (d.wx - d.prevWx) / dt
+      const vy = (d.wy - d.prevWy) / dt
+      // Clamp fling velocity so it doesn't go crazy
+      const maxV = 15
+      const clampedVx = Math.max(-maxV, Math.min(maxV, vx))
+      const clampedVy = Math.max(-maxV, Math.min(maxV, vy))
+      onDebugMouse({ type: 'release', bodyId: d.bodyId, vx: clampedVx, vy: clampedVy })
+      dragRef.current = { active: false, bodyId: null, wx: 0, wy: 0, prevWx: 0, prevWy: 0, prevTime: 0 }
+      canvas.style.cursor = 'default'
+    }
+
+    canvas.addEventListener('mousedown', onMouseDown)
+    canvas.addEventListener('mousemove', onMouseMove)
+    canvas.addEventListener('mouseup', onMouseUp)
+    canvas.addEventListener('mouseleave', onMouseUp)
+
+    return () => {
+      canvas.removeEventListener('mousedown', onMouseDown)
+      canvas.removeEventListener('mousemove', onMouseMove)
+      canvas.removeEventListener('mouseup', onMouseUp)
+      canvas.removeEventListener('mouseleave', onMouseUp)
+    }
+  }, [onDebugMouse, charDef])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -299,6 +407,170 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
       ctx.font = '600 11px "DM Mono", monospace'
       ctx.fillStyle = '#e2b96f'
       ctx.fillText(`${torsoSnap.x.toFixed(1)}m`, W - 12, H - 28)
+    }
+
+    // ── Debug overlay ──────────────────────────────────────────────────────
+    const debug = snapshot?._debug
+    if (debug && charDef) {
+      // Body labels
+      ctx.font = '500 9px "DM Mono", monospace'
+      ctx.textAlign = 'center'
+      for (const bl of (debug.bodyLabels || [])) {
+        const t = snapshot[bl.id]
+        if (!t) continue
+        const { sx, sy } = ws(t.x, t.y)
+        ctx.fillStyle = 'rgba(255,255,255,0.5)'
+        ctx.fillText(bl.id, sx, sy - 18)
+        ctx.fillStyle = 'rgba(255,255,255,0.25)'
+        ctx.fillText(`${bl.mass}kg`, sx, sy - 8)
+      }
+
+      // Joint limit arcs + angle indicators
+      for (const jDef of charDef.joints) {
+        const jDebug = debug.joints?.[jDef.id]
+        if (!jDebug) continue
+        const tA = snapshot[jDef.bodyA]
+        if (!tA) continue
+
+        // Joint world position from bodyA anchor
+        const [ax, ay] = jDef.anchorA
+        const cos = Math.cos(tA.angle)
+        const sin = Math.sin(tA.angle)
+        const wx = tA.x + ax * cos - ay * sin
+        const wy = tA.y + ax * sin + ay * cos
+        const { sx, sy } = ws(wx, wy)
+
+        const arcRadius = 28
+        const isActive = debug.activeJoint === jDef.id
+
+        // Reference angle = bodyA's world angle (arcs are relative to parent)
+        const refAngle = tA.angle
+
+        // Draw limit arc (screen coords: y is flipped, so negate angles)
+        ctx.beginPath()
+        ctx.arc(sx, sy, arcRadius,
+          -(refAngle + jDebug.upper),
+          -(refAngle + jDebug.lower),
+          false
+        )
+        ctx.strokeStyle = isActive ? 'rgba(226,185,111,0.5)' : 'rgba(255,255,255,0.15)'
+        ctx.lineWidth = isActive ? 2.5 : 1.5
+        ctx.stroke()
+
+        // Draw limit tick marks at ends
+        for (const limitAngle of [jDebug.lower, jDebug.upper]) {
+          const screenAngle = -(refAngle + limitAngle)
+          const innerR = arcRadius - 4
+          const outerR = arcRadius + 4
+          ctx.beginPath()
+          ctx.moveTo(sx + innerR * Math.cos(screenAngle), sy + innerR * Math.sin(screenAngle))
+          ctx.lineTo(sx + outerR * Math.cos(screenAngle), sy + outerR * Math.sin(screenAngle))
+          ctx.strokeStyle = isActive ? 'rgba(226,185,111,0.6)' : 'rgba(255,255,255,0.25)'
+          ctx.lineWidth = 1.5
+          ctx.stroke()
+        }
+
+        // Current angle indicator (line from center)
+        const currentScreenAngle = -(refAngle + jDebug.angle)
+        ctx.beginPath()
+        ctx.moveTo(sx, sy)
+        ctx.lineTo(
+          sx + (arcRadius + 6) * Math.cos(currentScreenAngle),
+          sy + (arcRadius + 6) * Math.sin(currentScreenAngle)
+        )
+        // Color based on how close to limits (green=center, red=near limit)
+        const range = jDebug.upper - jDebug.lower
+        const normalized = range > 0 ? (jDebug.angle - jDebug.lower) / range : 0.5
+        const nearLimit = Math.min(normalized, 1 - normalized) * 2  // 0=at limit, 1=center
+        const r = Math.round(255 * (1 - nearLimit))
+        const g = Math.round(200 * nearLimit)
+        ctx.strokeStyle = isActive
+          ? `rgba(${r},${g},80,0.9)`
+          : `rgba(${r},${g},80,0.5)`
+        ctx.lineWidth = isActive ? 2.5 : 1.5
+        ctx.stroke()
+
+        // Angle readout
+        const angleDeg = (jDebug.angle * 180 / Math.PI).toFixed(0)
+        const lowerDeg = (jDebug.lower * 180 / Math.PI).toFixed(0)
+        const upperDeg = (jDebug.upper * 180 / Math.PI).toFixed(0)
+        ctx.font = '500 8px "DM Mono", monospace'
+        ctx.textAlign = 'left'
+        ctx.fillStyle = isActive ? 'rgba(226,185,111,0.8)' : 'rgba(255,255,255,0.3)'
+        ctx.fillText(`${angleDeg}° [${lowerDeg},${upperDeg}]`, sx + arcRadius + 10, sy - 2)
+        if (isActive) {
+          ctx.fillStyle = 'rgba(226,185,111,0.5)'
+          ctx.fillText(`τmax ${jDebug.maxTorque}`, sx + arcRadius + 10, sy + 9)
+          ctx.fillText(`kp${jDebug.kp} kd${jDebug.kd}`, sx + arcRadius + 10, sy + 20)
+        }
+
+        // Torque direction arrow when actively testing
+        if (isActive && debug.direction !== 0) {
+          const arrowAngle = currentScreenAngle + (debug.direction > 0 ? -0.4 : 0.4)
+          const arrowR = arcRadius + 14
+          const tipX = sx + arrowR * Math.cos(arrowAngle)
+          const tipY = sy + arrowR * Math.sin(arrowAngle)
+
+          ctx.beginPath()
+          ctx.arc(sx, sy, arcRadius + 10, currentScreenAngle,
+            currentScreenAngle + (debug.direction > 0 ? -0.5 : 0.5), debug.direction > 0)
+          ctx.strokeStyle = debug.direction > 0 ? 'rgba(74,222,128,0.7)' : 'rgba(224,90,90,0.7)'
+          ctx.lineWidth = 2.5
+          ctx.stroke()
+
+          // Arrowhead
+          ctx.beginPath()
+          ctx.arc(tipX, tipY, 3, 0, Math.PI * 2)
+          ctx.fillStyle = debug.direction > 0 ? 'rgba(74,222,128,0.8)' : 'rgba(224,90,90,0.8)'
+          ctx.fill()
+        }
+      }
+
+      // Drag spring line
+      const drag = dragRef.current
+      if (drag.active && snapshot[drag.bodyId]) {
+        const bodySnap = snapshot[drag.bodyId]
+        const bodyScreen = ws(bodySnap.x, bodySnap.y)
+        const mouseScreen = ws(drag.wx, drag.wy)
+
+        // Spring line
+        ctx.beginPath()
+        ctx.moveTo(bodyScreen.sx, bodyScreen.sy)
+        ctx.lineTo(mouseScreen.sx, mouseScreen.sy)
+        ctx.strokeStyle = 'rgba(226,185,111,0.6)'
+        ctx.lineWidth = 2
+        ctx.setLineDash([4, 4])
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // Mouse cursor dot
+        ctx.beginPath()
+        ctx.arc(mouseScreen.sx, mouseScreen.sy, 6, 0, Math.PI * 2)
+        ctx.fillStyle = 'rgba(226,185,111,0.4)'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(226,185,111,0.7)'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+
+        // Grabbed body highlight
+        ctx.beginPath()
+        ctx.arc(bodyScreen.sx, bodyScreen.sy, 10, 0, Math.PI * 2)
+        ctx.strokeStyle = 'rgba(226,185,111,0.5)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      }
+
+      // Debug mode label
+      ctx.font = '600 11px "DM Mono", monospace'
+      ctx.textAlign = 'center'
+      ctx.fillStyle = 'rgba(226,185,111,0.6)'
+      ctx.fillText('PHYSICS DEBUG', W / 2, 20)
+      const debugLabel = drag.active ? `dragging: ${drag.bodyId}`
+        : debug.activeJoint ? `testing: ${debug.activeJoint}`
+        : 'click body to drag'
+      ctx.font = '500 10px "DM Mono", monospace'
+      ctx.fillStyle = 'rgba(226,185,111,0.4)'
+      ctx.fillText(debugLabel, W / 2, 34)
     }
 
   }, [snapshot, charDef, episodeReward, episodeSteps, canvasSize])

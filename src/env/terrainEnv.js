@@ -1,38 +1,37 @@
 /**
  * TerrainRapierEnv
  *
- * A physics environment with:
- *   - PD controllers (agent outputs target joint angles, not raw torques)
- *   - Procedural terrain (gaps, ramps, stairs, bumps)
- *   - Terrain perception (heightfield sampling ahead of agent)
- *   - Peng-style reward (forward velocity + alive bonus + strict early termination)
- *   - Frame skip with PD tracking for smooth motion
- *   - Support for arbitrary user-built creature definitions
+ * A physics environment inspired by Peng et al. "Terrain-Adaptive Locomotion
+ * Skills Using Deep Reinforcement Learning" (2016):
  *
- * Inspired by Peng et al. "Terrain-Adaptive Locomotion Skills Using Deep RL"
+ *   - PD target-angle control: policy outputs target joint angles in [-1,1],
+ *     mapped to joint limits via addTorque() with manual PD each substep.
+ *   - Dense terrain perception: 40 height samples from behind to well ahead
+ *   - Linear velocity reward + alive bonus + control cost penalty
+ *   - High-frequency physics (240Hz) with 30Hz policy for stable PD tracking
+ *   - Procedural terrain (gaps, ramps, stairs, bumps)
  */
 
 import RAPIER from '@dimforge/rapier2d'
 import { generateTerrain, sampleHeightfield } from './terrain.js'
 
-// Physics runs at 120Hz internally, policy queries at 30Hz (4 substeps per policy step)
-const PHYSICS_DT = 1 / 120
-const POLICY_FREQ = 30         // Hz — how often the policy picks new target angles
-const SUBSTEPS_PER_POLICY = Math.round((1 / POLICY_FREQ) / PHYSICS_DT)  // = 4
+// Physics at 240Hz, policy at 30Hz → 8 substeps per policy step
+const PHYSICS_DT = 1 / 240
+const POLICY_FREQ = 30
+const SUBSTEPS_PER_POLICY = Math.round((1 / POLICY_FREQ) / PHYSICS_DT)  // = 8
 
-const GRAVITY = -9.81
+const GRAVITY = -5.5  // lower than Earth for natural on-screen feel at this render scale
 
-// PD controller gains (can be overridden per-joint in the character def)
-const DEFAULT_KP = 300    // proportional gain
-const DEFAULT_KD = 30     // derivative gain
+// Default PD gains (overridden per-joint in character def)
+// These are torque-domain gains (Nm/rad). At ~1 rad error, PD output ≈ maxTorque.
+// Too high → bang-bang saturation → jerky/unstable. Too low → limp joints.
+const DEFAULT_KP = 300
+const DEFAULT_KD = 30
 
-// Terrain perception
-const TERRAIN_SAMPLES = 10   // number of height samples in observation
-const LOOK_AHEAD = 3.0       // meters ahead
-const LOOK_BEHIND = 0.5      // meters behind
-
-// Ground contact collision group for early termination bodies
-const TERMINATE_ON_CONTACT_GROUP = 0x0002
+// Terrain perception — denser sampling and longer look-ahead than before
+export const TERRAIN_SAMPLES = 40   // Peng uses 200; 40 is practical for browser PPO
+const LOOK_AHEAD = 8.0       // meters ahead (Peng: 10m)
+const LOOK_BEHIND = 1.0      // meters behind (Peng: 0.5m)
 
 export class TerrainRapierEnv {
   /**
@@ -61,7 +60,6 @@ export class TerrainRapierEnv {
 
     // PD controller state
     this._targetAngles = null    // current target joint angles from policy
-    this._jointOrder = []         // ordered joint IDs for action mapping
 
     // Terrain
     this.terrain = null
@@ -69,8 +67,6 @@ export class TerrainRapierEnv {
 
     // Count actuated joints for action space sizing
     this._actuatedJoints = characterDef.joints.filter(j => (j.maxTorque ?? 0) > 0)
-    this._jointOrder = this._actuatedJoints.map(j => j.id)
-
     // Observation size: base body obs + joint obs + foot contacts + terrain heightfield
     const numJoints = characterDef.joints.length
     const numFeet = characterDef.bodies.filter(b => b.isFootBody).length
@@ -83,13 +79,14 @@ export class TerrainRapierEnv {
     if (this.world) this.world.free()
 
     this.world = new RAPIER.World({ x: 0.0, y: GRAVITY })
+    this.world.timestep = PHYSICS_DT
     this.bodies = {}
     this.joints = {}
     this.footSensorHandles = {}
     this.terrainBodies = []
 
-    // Generate terrain
-    this.terrain = generateTerrain(this.terrainSeed, this.terrainLength, this.difficulty)
+    // Generate terrain (use curriculum difficulty if available)
+    this.terrain = generateTerrain(this.terrainSeed, this.terrainLength, this._effectiveDifficulty ?? this.difficulty)
 
     // Build terrain colliders from segments
     for (const seg of this.terrain.segments) {
@@ -178,7 +175,7 @@ export class TerrainRapierEnv {
 
       const joint = this.world.createImpulseJoint(jointData, bodyA, bodyB, true)
 
-      // Set initial motor with damping
+      // Passive damping resists joint motion (overridden per-step by PD motor)
       if ((jointDef.damping ?? 0) > 0) {
         joint.configureMotorVelocity(0.0, jointDef.damping)
       }
@@ -201,27 +198,41 @@ export class TerrainRapierEnv {
   }
 
   reset() {
-    // New terrain each episode with different seed
-    this.terrainSeed = Math.floor(Math.random() * 100000)
+    // Keep the same terrain seed for the first N episodes so the agent can
+    // learn basic locomotion on consistent ground, then start randomizing.
+    this._episodeCount = (this._episodeCount ?? 0) + 1
+    if (this._episodeCount > 50) {
+      this.terrainSeed = Math.floor(Math.random() * 100000)
+    }
+    // Curriculum: start with very low difficulty, ramp up over episodes
+    this._effectiveDifficulty = Math.min(this.difficulty, this._episodeCount / 100)
     this._buildWorld()
     this.stepCount = 0
     this._footContacts = {}
 
-    // Small random perturbation
+    // Random perturbation — forces the policy to learn recovery and handle
+    // varied starting poses, improving robustness to external perturbations
     const def = this.def
     for (const bodyDef of def.bodies) {
       if (bodyDef.fixed) continue
       const rb = this.bodies[bodyDef.id]
       rb.setTranslation({
-        x: bodyDef.spawnX + (Math.random() - 0.5) * 0.01,
-        y: bodyDef.spawnY + (Math.random() - 0.5) * 0.01,
+        x: bodyDef.spawnX + (Math.random() - 0.5) * 0.15,
+        y: bodyDef.spawnY + (Math.random() - 0.5) * 0.1,
       }, true)
-      rb.setRotation((bodyDef.spawnAngle ?? 0) + (Math.random() - 0.5) * 0.02, true)
-      rb.setLinvel({ x: (Math.random() - 0.5) * 0.01, y: 0 }, true)
-      rb.setAngvel((Math.random() - 0.5) * 0.01, true)
+      rb.setRotation((bodyDef.spawnAngle ?? 0) + (Math.random() - 0.5) * 0.4, true)
+      rb.setLinvel({ x: (Math.random() - 0.5) * 0.5, y: (Math.random() - 0.5) * 0.3 }, true)
+      rb.setAngvel((Math.random() - 0.5) * 0.5, true)
     }
 
     // Initialize PD targets to current joint angles (rest pose)
+    // Cache per-joint PD parameters (constant per episode)
+    this._maxTorques = this._actuatedJoints.map(j => j.maxTorque ?? 300)
+    this._kps = this._actuatedJoints.map(j => j.kp ?? DEFAULT_KP)
+    this._kds = this._actuatedJoints.map(j => j.kd ?? DEFAULT_KD)
+    this._bodyAs = this._actuatedJoints.map(j => this.bodies[j.bodyA])
+    this._bodyBs = this._actuatedJoints.map(j => this.bodies[j.bodyB])
+
     this._targetAngles = new Float32Array(this._actuatedJoints.length)
     for (let i = 0; i < this._actuatedJoints.length; i++) {
       const jDef = this._actuatedJoints[i]
@@ -241,59 +252,50 @@ export class TerrainRapierEnv {
 
   /**
    * Step the environment.
-   * Actions are target joint angles in [-1, 1], mapped to [lowerLimit, upperLimit].
+   *
+   * Peng-style PD target-angle control:
+   *   actions[i] ∈ [-1, 1] → target angle within joint limits
+   *   Manual PD: τ = kp·(target - θ) - kd·ω, applied via addTorque() each substep
    */
   step(actions) {
     const def = this.def
-    const clampedActions = Array.isArray(actions)
-      ? actions.map(a => Math.max(-1, Math.min(1, a)))
-      : [Math.max(-1, Math.min(1, actions))]
+    // Normalize to array (scalar possible for single-joint creatures)
+    const acts = typeof actions === 'number' ? [actions] : actions
+    const clampedActions = acts.map(a => Math.max(-1, Math.min(1, a)))
 
-    // Map actions from [-1,1] to target joint angles within limits
+    // Peng-style: actions are offsets from rest pose, not raw joint positions.
+    // action=0 → rest angle (standing), ±1 → full deviation toward joint limits.
     for (let i = 0; i < this._actuatedJoints.length; i++) {
       const jDef = this._actuatedJoints[i]
-      const lower = jDef.lowerLimit
-      const upper = jDef.upperLimit
-      // Map [-1, 1] → [lower, upper]
-      this._targetAngles[i] = lower + (clampedActions[i] + 1) * 0.5 * (upper - lower)
+      const lo = jDef.lowerLimit
+      const hi = jDef.upperLimit
+      const rest = jDef.restAngle ?? 0  // standing pose angle
+      const a = clampedActions[i]
+      // Asymmetric mapping: positive action → toward upper limit, negative → toward lower limit
+      const target = a >= 0
+        ? rest + a * (hi - rest)
+        : rest + a * (rest - lo)
+      this._targetAngles[i] = Math.max(lo, Math.min(hi, target))
     }
 
-    // Run physics substeps with PD controller
-    let totalControlCost = 0
+    // Run physics substeps, applying PD torques each substep for stability
     for (let sub = 0; sub < SUBSTEPS_PER_POLICY; sub++) {
-      // Apply PD torques to each actuated joint
       for (let i = 0; i < this._actuatedJoints.length; i++) {
-        const jDef = this._actuatedJoints[i]
-        const joint = this.joints[jDef.id]
-        if (!joint) continue
+        const bodyA = this._bodyAs[i]
+        const bodyB = this._bodyBs[i]
 
-        const bodyA = this.bodies[jDef.bodyA]
-        const bodyB = this.bodies[jDef.bodyB]
-        if (!bodyA || !bodyB) continue
-
-        // Current joint state
         const currentAngle = bodyB.rotation() - bodyA.rotation()
         const currentAngVel = bodyB.angvel() - bodyA.angvel()
 
-        // PD control: torque = kp * (target - current) - kd * velocity
-        const kp = jDef.kp ?? DEFAULT_KP
-        const kd = jDef.kd ?? DEFAULT_KD
-        const targetAngle = this._targetAngles[i]
-
-        let torque = kp * (targetAngle - currentAngle) - kd * currentAngVel
-
-        // Clamp torque to joint limits
-        const maxT = jDef.maxTorque ?? 200
+        // PD: τ = kp·(target - current) - kd·velocity
+        let torque = this._kps[i] * (this._targetAngles[i] - currentAngle) - this._kds[i] * currentAngVel
+        const maxT = this._maxTorques[i]
         torque = Math.max(-maxT, Math.min(maxT, torque))
 
-        totalControlCost += torque * torque / (maxT * maxT)
-
-        // Apply torque via motor API — set target velocity proportional to error
-        // with high stiffness to approximate direct torque
-        const targetVel = torque / (kd > 0 ? kd : 30)
-        joint.configureMotorVelocity(targetVel, Math.abs(torque) + 1.0)
+        // Apply equal and opposite torques (Newton's third law)
+        bodyB.addTorque(torque, true)
+        bodyA.addTorque(-torque, true)
       }
-
       this.world.step()
     }
 
@@ -319,12 +321,11 @@ export class TerrainRapierEnv {
     this._prevTorsoX = torsoPos.x
     this._maxTorsoX = Math.max(this._maxTorsoX, torsoPos.x)
 
-    // Health / early termination checks
+    // Health / early termination
     const torsoDef = def.bodies.find(b => b.id === forwardBodyId) || def.bodies[0]
     const minY = torsoDef.minY ?? 0.3
     const maxAngle = torsoDef.maxAngle ?? 0.6
 
-    // Check if torso is above ground (terrain-relative)
     const groundAtTorso = this._getGroundHeight(torsoPos.x)
     const heightAboveGround = torsoPos.y - groundAtTorso
 
@@ -332,21 +333,28 @@ export class TerrainRapierEnv {
     const done = !healthy || this.stepCount >= this.maxSteps
     const timedOut = this.stepCount >= this.maxSteps
 
-    // Peng-style reward
-    const r = def.defaultReward || {}
+    // ── Reward ──
+    // Linear forward velocity (always gives gradient) + alive bonus + control cost
+    const r = def.defaultReward ?? {}
     let reward = 0
+
     if (healthy || timedOut) {
-      // Forward velocity reward
-      reward += (r.forwardVelWeight ?? 1.0) * forwardVel
-      // Alive bonus
-      reward += (r.aliveBonusWeight ?? 0.5)
-      // Control cost (normalized by number of actuated joints)
-      const ctrlWeight = r.ctrlCostWeight ?? 0.001
-      reward -= ctrlWeight * (totalControlCost / Math.max(1, this._actuatedJoints.length * SUBSTEPS_PER_POLICY))
+      // Forward velocity reward — the primary training signal.
+      // Must dominate alive bonus so moving forward beats standing still.
+      reward += (r.forwardVelWeight ?? 3.0) * forwardVel
+
+      // Alive bonus — small tiebreaker, NOT the primary signal.
+      // Too high creates "stand still" local minimum (standing still = max alive bonus).
+      reward += (r.aliveBonusWeight ?? 0.1)
+
+      // Control cost: penalize large target angle changes (smooth motion)
+      const ctrlCost = clampedActions.reduce((s, a) => s + a * a, 0)
+      reward -= (r.ctrlCostWeight ?? 0.001) * ctrlCost
     }
-    // Termination penalty (strict — encourages not falling)
+
+    // Termination penalty (default 0 — alive bonus already incentivizes survival)
     if (done && !timedOut) {
-      reward -= (r.terminationPenalty ?? 50.0)
+      reward -= (r.terminationPenalty ?? 0.0)
     }
 
     const obs = this._getObs()

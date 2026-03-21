@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm ls:*)",
+      "WebFetch(domain:microcosm.ai)",
+      "WebSearch",
+      "WebFetch(domain:iclr-blog-track.github.io)",
+      "WebFetch(domain:gymnasium.farama.org)",
+      "WebFetch(domain:costa.sh)",
+      "Bash(node -e \":*)",
+      "Bash(node --input-type=module -e \":*)"
+    ]
+  }
+}

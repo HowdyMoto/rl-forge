@@ -1,0 +1,34 @@
+<mujoco model="hopper">
+  <compiler angle="radian" />
+  <option gravity="0 -9.81 0" />
+  <default>
+    <geom friction="0.8" />
+    <joint damping="5.0" />
+  </default>
+  <custom>
+    <numeric name="gravityScale" data="1" />
+    <text name="forwardBody" data="torso" />
+    <numeric name="groundY" data="0" />
+    <numeric name="groundFriction" data="0.8" />
+    <numeric name="groundRestitution" data="0.1" />
+    <text name="defaultReward" data="{&quot;forwardVelWeight&quot;:1,&quot;aliveBonusWeight&quot;:1,&quot;ctrlCostWeight&quot;:0.001,&quot;terminationPenalty&quot;:0,&quot;healthyYMin&quot;:0.7,&quot;healthyAngleMax&quot;:0.4}" />
+  </custom>
+  <worldbody>
+    <geom name="ground" type="plane" pos="0 0 0" size="50 1 1" friction="0.8 0.005 0.0001" rgba="0.3 0.3 0.3 1" />
+    <body name="torso" pos="0 1.35 0">
+      <geom name="torso" type="box" size="0.125 0.225 0.05" mass="3.53" friction="0.3" rl-forge:minY="0.7" rl-forge:maxAngle="0.4" />
+      <body name="thigh" pos="0 0.87 0">
+        <joint name="hip" type="hinge" axis="0 0 1" limited="true" range="-0.698 0.698" pos="0 0.175 0" damping="5" rl-forge:maxVelocity="8" rl-forge:anchorA="0 -0.225" />
+        <geom name="thigh" type="capsule" size="0.05" fromto="0 -0.12499999999999999 0 0 0.12499999999999999 0" mass="0.898" friction="0.3" />
+        <body name="shin" pos="0 0.47 0">
+          <joint name="knee" type="hinge" axis="0 0 1" limited="true" range="-1.396 0" pos="0 0.15 0" damping="5" rl-forge:maxVelocity="8" rl-forge:anchorA="0 -0.175" />
+          <geom name="shin" type="capsule" size="0.04" fromto="0 -0.10999999999999999 0 0 0.10999999999999999 0" mass="0.357" friction="0.8" rl-forge:isFootBody="true" />
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="hip_motor" joint="hip" gear="40" ctrllimited="true" ctrlrange="-1 1" />
+    <motor name="knee_motor" joint="knee" gear="40" ctrllimited="true" ctrlrange="-1 1" />
+  </actuator>
+</mujoco>

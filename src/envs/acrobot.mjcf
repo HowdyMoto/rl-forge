@@ -1,0 +1,33 @@
+<mujoco model="acrobot">
+  <compiler angle="radian" />
+  <option gravity="0 -9.81 0" />
+  <default>
+    <geom friction="0.5" />
+    <joint damping="5.0" />
+  </default>
+  <custom>
+    <numeric name="gravityScale" data="1" />
+    <text name="forwardBody" data="link2" />
+    <numeric name="groundY" data="-10" />
+    <numeric name="groundFriction" data="0.5" />
+    <numeric name="groundRestitution" data="0.1" />
+    <text name="defaultReward" data="{&quot;forwardVelWeight&quot;:0,&quot;aliveBonusWeight&quot;:0,&quot;ctrlCostWeight&quot;:0.001,&quot;terminationPenalty&quot;:0,&quot;tipHeightWeight&quot;:1,&quot;anchorY&quot;:2,&quot;healthyYMin&quot;:-100,&quot;healthyAngleMax&quot;:100}" />
+  </custom>
+  <worldbody>
+    <geom name="ground" type="plane" pos="0 -10 0" size="50 1 1" friction="0.5 0.005 0.0001" rgba="0.3 0.3 0.3 1" />
+    <body name="torso" pos="0 2 0" rl-forge:fixed="true">
+      <geom name="torso" type="box" size="0.04 0.04 0.05" mass="1" friction="0" rl-forge:minY="-100" rl-forge:maxAngle="100" />
+      <body name="link1" pos="0 1.75 0">
+        <joint name="shoulder" type="hinge" axis="0 0 1" limited="true" range="-6.283185307179586 6.283185307179586" pos="0 -0.25 0" damping="0" rl-forge:maxVelocity="15" rl-forge:anchorA="0 0" />
+        <geom name="link1" type="capsule" size="0.04" fromto="0 -0.21 0 0 0.21 0" mass="1" friction="0.3" />
+        <body name="link2" pos="0 1.25 0">
+          <joint name="elbow" type="hinge" axis="0 0 1" limited="true" range="-6.283185307179586 6.283185307179586" pos="0 -0.25 0" damping="0" rl-forge:maxVelocity="15" rl-forge:anchorA="0 0.25" />
+          <geom name="link2" type="capsule" size="0.04" fromto="0 -0.21 0 0 0.21 0" mass="1" friction="0.3" rl-forge:isFootBody="true" rl-forge:minY="-100" rl-forge:maxAngle="100" />
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="elbow_motor" joint="elbow" gear="10" ctrllimited="true" ctrlrange="-1 1" />
+  </actuator>
+</mujoco>

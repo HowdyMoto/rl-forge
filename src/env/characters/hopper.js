@@ -78,10 +78,10 @@ export const HOPPER = {
       anchorB: [0.0,  0.175],   // top of thigh
       lowerLimit: -0.698,  // -40°
       upperLimit:  0.698,  //  40°
-      maxTorque: 200.0,
-      maxVelocity: 15.0,
+      maxTorque: 40.0,
+      maxVelocity: 8.0,
       stiffness: 0,      // purely actuated (no spring)
-      damping: 0,
+      damping: 5.0,
     },
     {
       id: 'knee',
@@ -91,10 +91,10 @@ export const HOPPER = {
       anchorB: [0.0,  0.150],   // top of shin
       lowerLimit: -1.396,  // -80° (knee bends backward)
       upperLimit:  0.0,    //   0° (can't hyperextend)
-      maxTorque: 200.0,
-      maxVelocity: 15.0,
+      maxTorque: 40.0,
+      maxVelocity: 8.0,
       stiffness: 0,
-      damping: 0,
+      damping: 5.0,
     },
   ],
 
@@ -114,7 +114,7 @@ export const HOPPER = {
     forwardVelWeight: 1.0,
     aliveBonusWeight: 1.0,
     ctrlCostWeight: 0.001,
-    terminationPenalty: 100.0,
+    terminationPenalty: 0.0,
     healthyYMin: 0.7,
     healthyAngleMax: 0.4,
   },

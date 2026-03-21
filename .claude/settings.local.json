@@ -4,7 +4,9 @@
       "Bash(npm run:*)",
       "Bash(npx vite:*)",
       "Bash(grep -r srcs*=s*['']/ /d/GitHub_HowdyMoto/rl-forge --include=*.html --include=*.jsx --include=*.js)",
-      "Bash(grep -r hrefs*=s*['']/ /d/GitHub_HowdyMoto/rl-forge --include=*.html --include=*.jsx --include=*.js)"
+      "Bash(grep -r hrefs*=s*['']/ /d/GitHub_HowdyMoto/rl-forge --include=*.html --include=*.jsx --include=*.js)",
+      "Bash(node --input-type=module -e \":*)",
+      "WebFetch(domain:mujoco.readthedocs.io)"
     ]
   }
 }

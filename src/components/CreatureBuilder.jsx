@@ -8,6 +8,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { TERRAIN_SAMPLES } from '../env/terrainEnv.js'
 
 // ─── Preset Templates ─────────────────────────────────────────────────────────
 
@@ -146,9 +147,9 @@ function builderToCharDef(parts, connections, name = 'custom') {
 
   const numFeet = bodies.filter(b => b.isFootBody).length
 
-  // obsSize = 5(torso) + joints*2 + feet + 10(terrain)
-  const obsSize = 5 + joints.length * 2 + numFeet + 10
-  // actionSize = number of actuated joints (all joints for now)
+  // obsSize = 5(torso) + joints*2 + feet + terrain height samples
+  const obsSize = 5 + joints.length * 2 + numFeet + TERRAIN_SAMPLES
+  // actionSize = number of actuated joints (policy outputs target angles)
   const actionSize = joints.length
 
   return {
@@ -162,8 +163,8 @@ function builderToCharDef(parts, connections, name = 'custom') {
     actionSize,
     defaultReward: {
       forwardVelWeight: 1.5,
-      aliveBonusWeight: 0.5,
-      ctrlCostWeight: 0.0005,
+      aliveBonusWeight: 1.0,
+      ctrlCostWeight: 0.001,
       terminationPenalty: 50.0,
     },
   }

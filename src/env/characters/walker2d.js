@@ -126,7 +126,7 @@ export const WALKER2D = {
       anchorB: [0.0,    0.175], // top of thigh
       lowerLimit: -0.698,  // -40°
       upperLimit:  0.698,  //  40°
-      maxTorque: 100.0,
+      maxTorque: 250.0,
       maxVelocity: 10.0,
       stiffness: 0,
       damping: 5.0,
@@ -139,7 +139,7 @@ export const WALKER2D = {
       anchorB: [0.0,  0.150],   // top of shin
       lowerLimit: -1.396,  // -80°
       upperLimit:  0.0,    //   0°
-      maxTorque: 100.0,
+      maxTorque: 250.0,
       maxVelocity: 10.0,
       stiffness: 0,
       damping: 5.0,
@@ -163,10 +163,10 @@ export const WALKER2D = {
 
   // Default reward function config
   defaultReward: {
-    forwardVelWeight: 1.0,
-    aliveBonusWeight: 1.0,
+    forwardVelWeight: 1.0,    // MuJoCo standard: reward = velocity (m/s)
+    aliveBonusWeight: 1.0,    // +1 per step alive
     ctrlCostWeight: 0.001,
-    terminationPenalty: 50.0,
+    terminationPenalty: 0.0,  // no termination penalty (alive bonus incentivizes survival)
     healthyYMin: 0.5,
     healthyAngleMax: 0.8,
   },

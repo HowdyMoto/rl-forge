@@ -56,7 +56,7 @@ export default function RewardChart({ metrics, solvedThreshold = 500 }) {
               tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: '"DM Mono", monospace' }}
               tickLine={false}
               axisLine={false}
-              domain={[0, Math.max(solvedThreshold * 1.1, maxReward * 1.1)]}
+              domain={[Math.min(0, ...data.map(d => d.reward)), Math.max(1, maxReward * 1.1)]}
               width={36}
             />
             <Tooltip content={<CustomTooltip />} />

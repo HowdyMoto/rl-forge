@@ -63,9 +63,7 @@ function SmallChart({ data, dataKey, label, color, solvedThreshold }) {
   const max = Math.max(...values)
   const pad = (max - min) * 0.1 || 1
   const domainMin = dataKey === 'meanReward20' ? Math.min(0, min - pad) : min - pad
-  const domainMax = solvedThreshold
-    ? Math.max(max + pad, solvedThreshold * 1.1)
-    : max + pad
+  const domainMax = max + pad
 
   return (
     <ResponsiveContainer width="100%" height="100%">

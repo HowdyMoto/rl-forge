@@ -19,7 +19,7 @@ const ENV_CONFIGS = {
     label: 'Terrain',
     desc: 'Build & train creatures on terrain',
     solvedThreshold: 500,
-    ppoOverrides: { hiddenSizes: [128, 128], stepsPerUpdate: 2048, numEpochs: 10, learningRate: 3e-4 },
+    ppoOverrides: { hiddenSizes: [64, 64] },
     tooltip: 'Terrain platformer with PD-controlled creatures. Build a body in the creature builder, then train it to traverse procedurally generated terrain. Uses target joint angles (PD control) for smooth, natural-looking motion. Inspired by Peng et al. TerrainRL.',
   },
   cartpole: {
@@ -33,14 +33,14 @@ const ENV_CONFIGS = {
     label: 'Hopper',
     desc: 'Monopod hopper · 10 obs · 2 actions',
     solvedThreshold: 1500,
-    ppoOverrides: { hiddenSizes: [128, 128], stepsPerUpdate: 1024, numEpochs: 10 },
+    ppoOverrides: { hiddenSizes: [64, 64] },
     tooltip: 'Physics-based locomotion (Rapier2D). A single-legged robot learns to hop forward without falling. 10D observation, 2 continuous joint torques. More challenging than CartPole — contact dynamics, sparse-ish reward, harder exploration. Solved at mean reward ≥ 1500.',
   },
   walker2d: {
     label: 'Walker2D',
     desc: 'Bipedal walker · 15 obs · 4 actions',
     solvedThreshold: 1500,
-    ppoOverrides: { hiddenSizes: [128, 128], stepsPerUpdate: 2048, numEpochs: 10 },
+    ppoOverrides: { hiddenSizes: [64, 64] },
     tooltip: 'Bipedal locomotion (Rapier2D). A two-legged robot learns to walk forward without falling. 15D observation, 4 continuous joint torques (hip and knee per leg). Harder than Hopper — must coordinate both legs symmetrically. Solved at mean reward ≥ 1500.',
   },
   acrobot: {
@@ -257,6 +257,11 @@ export default function App() {
   const [customCharDef, setCustomCharDef] = useState(null)
   const [bestDistance, setBestDistance] = useState(0)
 
+  // Physics debug mode
+  const [debugMode, setDebugMode] = useState(false)
+  const [debugJoint, setDebugJoint] = useState(null)
+  const [debugDirection, setDebugDirection] = useState(0)
+
   const isRunning = trainingState === TRAINING_STATES.RUNNING
   const isTerrainMode = envType === 'terrain'
 
@@ -312,9 +317,15 @@ export default function App() {
         case 'BACKEND':
           setBackend(msg.deviceName ? `${msg.backend} · ${msg.deviceName}` : msg.backend)
           break
-        case 'EXPORT_URL':
+        case 'EXPORT_URL': {
           setExportUrl(msg.url)
+          // Auto-trigger download
+          const a = document.createElement('a')
+          a.href = msg.url
+          a.download = 'policy_weights.json'
+          a.click()
           break
+        }
       }
     }
     workerRef.current = worker
@@ -364,7 +375,57 @@ export default function App() {
   const handleStop = () => {
     workerRef.current?.postMessage({ type: 'STOP' })
     setTrainingState(TRAINING_STATES.IDLE)
+    setDebugMode(false)
+    setDebugJoint(null)
+    setDebugDirection(0)
   }
+
+  const handlePhysicsDebug = () => {
+    const worker = initWorker()
+    setMetrics([])
+    setEpisodes(0)
+    setCartpoleState(null)
+    setHopperSnapshot(null)
+    setExportUrl(null)
+    setDebugMode(true)
+    setDebugJoint(null)
+    setDebugDirection(0)
+    setTrainingState(TRAINING_STATES.RUNNING)
+    setSelectedTab('sim')
+
+    const config = { charDef: customCharDef }
+    worker.postMessage({ type: 'PHYSICS_DEBUG', config })
+  }
+
+  const handleDebugJointChange = (jointId) => {
+    setDebugJoint(jointId)
+    setDebugDirection(0)
+    workerRef.current?.postMessage({ type: 'DEBUG_CONTROL', config: { joint: jointId, direction: 0 } })
+  }
+
+  const handleDebugDirection = (dir) => {
+    setDebugDirection(dir)
+    workerRef.current?.postMessage({ type: 'DEBUG_CONTROL', config: { joint: debugJoint, direction: dir } })
+  }
+
+  const handleDebugReset = () => {
+    workerRef.current?.postMessage({ type: 'DEBUG_RESET' })
+  }
+
+  const handleDebugMouse = useCallback((msg) => {
+    if (!workerRef.current) return
+    switch (msg.type) {
+      case 'grab':
+        workerRef.current.postMessage({ type: 'DEBUG_GRAB', config: { bodyId: msg.bodyId, wx: msg.wx, wy: msg.wy } })
+        break
+      case 'drag':
+        workerRef.current.postMessage({ type: 'DEBUG_DRAG', config: { bodyId: msg.bodyId, wx: msg.wx, wy: msg.wy } })
+        break
+      case 'release':
+        workerRef.current.postMessage({ type: 'DEBUG_RELEASE', config: { bodyId: msg.bodyId, vx: msg.vx, vy: msg.vy } })
+        break
+    }
+  }, [])
 
   const handleImportPlay = (e) => {
     const file = e.target.files?.[0]
@@ -411,7 +472,7 @@ export default function App() {
   const renderSnapshotProps = { snapshot: hopperSnapshot, episodeReward, episodeSteps }
   let simContent
   if (envType === 'terrain') {
-    simContent = <TerrainRenderer {...renderSnapshotProps} charDef={customCharDef} />
+    simContent = <TerrainRenderer {...renderSnapshotProps} charDef={customCharDef} onDebugMouse={debugMode ? handleDebugMouse : undefined} />
   } else if (envType === 'cartpole') {
     simContent = <CartPoleRenderer state={cartpoleState} episodeReward={episodeReward} episodeSteps={episodeSteps} />
   } else if (envType === 'hopper') {
@@ -628,23 +689,28 @@ export default function App() {
 
                 <button
                   className="btn btn-ghost"
-                  onClick={() => workerRef.current?.postMessage({ type: 'EXPORT' })}
+                  onClick={() => {
+                    setExportUrl(null)
+                    workerRef.current?.postMessage({ type: 'EXPORT' })
+                  }}
                   disabled={metrics.length === 0}
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
-                  ↓ Export Weights
+                  {exportUrl ? '✓ Export Ready — Click Again to Re-export' : '↓ Export Weights'}
                 </button>
 
                 {exportUrl && (
                   <a href={exportUrl} download={`${customCharDef?.name || envType}_policy.json`}
+                    onClick={() => {/* auto-download triggered */}}
                     style={{
-                      display: 'block', textAlign: 'center', padding: '6px',
-                      background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)',
-                      borderRadius: 6, color: 'var(--green)', fontSize: 10,
+                      display: 'block', textAlign: 'center', padding: '8px',
+                      background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.25)',
+                      borderRadius: 6, color: 'var(--green)', fontSize: 11,
                       fontFamily: '"DM Mono", monospace', letterSpacing: '0.06em', textDecoration: 'none',
+                      fontWeight: 500,
                     }}
                   >
-                    ↓ {customCharDef?.name || envType}_policy.json ready
+                    ↓ Download {customCharDef?.name || envType}_policy.json
                   </a>
                 )}
 
@@ -663,8 +729,105 @@ export default function App() {
                 >
                   ↑ Import &amp; Play
                 </button>
+
+                {isTerrainMode && (
+                  <>
+                    <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                    <button
+                      className="btn btn-ghost"
+                      onClick={debugMode ? handleStop : handlePhysicsDebug}
+                      disabled={isRunning && !debugMode}
+                      style={{
+                        width: '100%', justifyContent: 'center',
+                        color: debugMode ? 'var(--gold)' : undefined,
+                        borderColor: debugMode ? 'var(--gold-border)' : undefined,
+                      }}
+                    >
+                      {debugMode ? '■ Stop Debug' : '⚙ Physics Debug'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
+
+            {/* Debug controls (visible when debug mode is active) */}
+            {debugMode && isTerrainMode && customCharDef && (
+              <div className="panel">
+                <div className="panel-header">
+                  <span>⚙ joint tester</span>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={handleDebugReset}
+                    style={{ padding: '3px 8px', fontSize: 9 }}
+                  >
+                    reset pose
+                  </button>
+                </div>
+                <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Joint selector */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {(customCharDef.joints || []).map(j => (
+                      <button
+                        key={j.id}
+                        onClick={() => handleDebugJointChange(debugJoint === j.id ? null : j.id)}
+                        style={{
+                          flex: '1 1 auto',
+                          padding: '5px 8px',
+                          background: debugJoint === j.id ? 'var(--gold-dim)' : 'var(--surface)',
+                          border: `1px solid ${debugJoint === j.id ? 'var(--gold-border)' : 'var(--border)'}`,
+                          borderRadius: 5,
+                          color: debugJoint === j.id ? 'var(--gold)' : 'var(--text-dim)',
+                          fontFamily: '"DM Mono", monospace',
+                          fontSize: 10,
+                          cursor: 'pointer',
+                          letterSpacing: '0.03em',
+                        }}
+                      >
+                        {j.id}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Torque direction controls */}
+                  {debugJoint && (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        className="btn"
+                        onMouseDown={() => handleDebugDirection(-1)}
+                        onMouseUp={() => handleDebugDirection(0)}
+                        onMouseLeave={() => handleDebugDirection(0)}
+                        style={{
+                          flex: 1, justifyContent: 'center', padding: '8px',
+                          background: debugDirection === -1 ? 'rgba(224,90,90,0.15)' : 'var(--surface)',
+                          color: debugDirection === -1 ? 'var(--red)' : 'var(--text-dim)',
+                          border: `1px solid ${debugDirection === -1 ? 'rgba(224,90,90,0.3)' : 'var(--border)'}`,
+                        }}
+                      >
+                        ← torque −
+                      </button>
+                      <button
+                        className="btn"
+                        onMouseDown={() => handleDebugDirection(1)}
+                        onMouseUp={() => handleDebugDirection(0)}
+                        onMouseLeave={() => handleDebugDirection(0)}
+                        style={{
+                          flex: 1, justifyContent: 'center', padding: '8px',
+                          background: debugDirection === 1 ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
+                          color: debugDirection === 1 ? 'var(--green)' : 'var(--text-dim)',
+                          border: `1px solid ${debugDirection === 1 ? 'rgba(74,222,128,0.2)' : 'var(--border)'}`,
+                        }}
+                      >
+                        torque + →
+                      </button>
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', lineHeight: 1.5 }}>
+                    Select a joint, then hold torque buttons to test. Arcs show joint limits, line shows current angle.
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Creature Builder (terrain mode only) */}
             {isTerrainMode && (
@@ -753,7 +916,7 @@ export default function App() {
                 </div>
                 {isTerrainMode && (
                   <div style={{ color: 'rgba(74,222,128,0.5)', fontSize: 9, marginTop: 4 }}>
-                    PD control: kp=300 kd=30 · 120Hz physics · 30Hz policy
+                    PD control: kp=300 kd=30 · 240Hz physics · 30Hz policy
                   </div>
                 )}
               </div>
