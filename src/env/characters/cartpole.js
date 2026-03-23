@@ -37,13 +37,14 @@ export const CARTPOLE = {
 
   bodies: [
     {
-      // Fixed anchor point for the prismatic rail
+      // Fixed anchor point for the prismatic rail (no collider — pure pivot)
       id: 'anchor',
       shape: 'box',
-      w: 0.01,
-      h: 0.01,
-      mass: 1.0,
+      w: 0.001,
+      h: 0.001,
+      mass: 0.001,
       fixed: true,
+      noCollider: true,
       friction: 0,
       restitution: 0,
       spawnX: 0,

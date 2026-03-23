@@ -96,6 +96,10 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
   const panRef = useRef({ active: false, startSx: 0, startSy: 0, startCamX: 0, startCamY: 0 })
   const userPannedRef = useRef(false) // disable auto-follow after manual pan
 
+  // Contact splat particles: { id, x, y, time, particles: [{dx, dy, speed, angle}] }
+  const splatRef = useRef([])
+  const prevContactsRef = useRef({})
+
   // Drag state for debug mode
   const dragRef = useRef({ active: false, bodyId: null, wx: 0, wy: 0, prevWx: 0, prevWy: 0, prevTime: 0 })
   const snapshotRef = useRef(null)
@@ -507,19 +511,51 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       }
     }
 
-    // Foot contacts
+    // Foot contact splats — flash + particles on new contact events
     const contacts = snapshot._footContacts || {}
-    for (const [bodyId, inContact] of Object.entries(contacts)) {
-      if (inContact && snapshot[bodyId]) {
-        const { sx, sy } = ws(snapshot[bodyId].x, snapshot[bodyId].y)
-        ctx.fillStyle = COLORS.contact
-        ctx.shadowColor = COLORS.contact
-        ctx.shadowBlur = 10
-        ctx.beginPath()
-        ctx.arc(sx, sy + 8, 4, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.shadowBlur = 0
+    const now = performance.now()
+    const prevContacts = prevContactsRef.current
+    const splats = splatRef.current
+    const SPLAT_DURATION = 250 // ms
+
+    // Detect new contacts (was off, now on) and spawn splats
+    for (const [bodyId, contact] of Object.entries(contacts)) {
+      const isOn = contact && typeof contact === 'object'
+      const wasOn = prevContacts[bodyId] || false
+      if (isOn && !wasOn) {
+        splats.push({ x: contact.x, y: contact.y, time: now })
       }
+      prevContactsRef.current[bodyId] = isOn
+    }
+
+    // Remove expired splats
+    while (splats.length > 0 && now - splats[0].time > SPLAT_DURATION) {
+      splats.shift()
+    }
+
+    // Draw splats: expanding ring behind a central dot
+    for (const splat of splats) {
+      const elapsed = now - splat.time
+      const t = Math.min(1, elapsed / SPLAT_DURATION)
+      const alpha = Math.max(0, 1 - t)
+      const { sx: cx, sy: cy } = ws(splat.x, splat.y)
+
+      // Expanding ring (behind the dot)
+      const ringRadius = 3 + 18 * t
+      ctx.strokeStyle = `rgba(74, 222, 128, ${alpha * 0.5})`
+      ctx.lineWidth = 2 * (1 - t)
+      ctx.beginPath()
+      ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2)
+      ctx.stroke()
+
+      // Central dot (bright, fades with ring)
+      ctx.fillStyle = `rgba(74, 222, 128, ${alpha})`
+      ctx.shadowColor = `rgba(74, 222, 128, ${alpha * 0.8})`
+      ctx.shadowBlur = 8 * alpha
+      ctx.beginPath()
+      ctx.arc(cx, cy, 3 * (1 - t * 0.5), 0, Math.PI * 2)
+      ctx.fill()
+      ctx.shadowBlur = 0
     }
 
     // ── Debug overlay ──────────────────────────────────────────────────────

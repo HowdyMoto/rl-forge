@@ -108,7 +108,12 @@ export function parseMJCF(xmlString, options = {}) {
   }
 
   const parser = new DOMParserClass()
-  const doc = parser.parseFromString(xmlString, 'text/xml')
+  // Inject rl-forge namespace declaration if not present, so DOMParser doesn't choke on rl-forge:* attributes
+  let xml = xmlString
+  if (xml.includes('rl-forge:') && !xml.includes('xmlns:rl-forge')) {
+    xml = xml.replace('<mujoco', '<mujoco xmlns:rl-forge="http://rl-forge.dev/mjcf"')
+  }
+  const doc = parser.parseFromString(xml, 'text/xml')
 
   const parseError = doc.querySelector('parsererror')
   if (parseError) {
@@ -234,6 +239,10 @@ function walkBody(bodyEl, parentId, bodies, joints, ctx) {
     spawnY: pos[1],
     spawnAngle: 0,
   }
+
+  // Spawn angle (rl-forge extension)
+  const spawnAngleAttr = bodyEl.getAttribute('rl-forge:spawnAngle')
+  if (spawnAngleAttr) body.spawnAngle = parseFloat(spawnAngleAttr)
 
   if (fixed) body.fixed = true
 

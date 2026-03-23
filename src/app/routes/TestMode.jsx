@@ -165,9 +165,39 @@ export default function TestMode() {
     workerRef.current?.postMessage({ type: 'DEBUG_CONTROL', config: { joint: next, direction: 0 } })
   }
 
+  // Torque drag state
+  const torqueDragRef = useRef({ active: false, startX: 0, sign: 0 })
+
   const handleTorque = (dir) => {
     setTorqueDirection(dir)
     workerRef.current?.postMessage({ type: 'DEBUG_CONTROL', config: { joint: selectedJoint, direction: dir } })
+  }
+
+  const handleTorqueDragStart = (e, sign) => {
+    e.preventDefault()
+    torqueDragRef.current = { active: true, startX: e.clientX, sign }
+    handleTorque(sign * 0.5) // start at 50%
+
+    const onMove = (me) => {
+      if (!torqueDragRef.current.active) return
+      const dx = me.clientX - torqueDragRef.current.startX
+      // Drag right = increase magnitude, drag left = decrease magnitude
+      // 100px right from start = 100%, 100px left = 0%
+      const magnitude = Math.min(1, Math.max(0, 0.5 + dx / 200))
+      const dir = torqueDragRef.current.sign * magnitude
+      setTorqueDirection(dir)
+      workerRef.current?.postMessage({ type: 'DEBUG_CONTROL', config: { joint: selectedJoint, direction: dir } })
+    }
+
+    const onUp = () => {
+      torqueDragRef.current.active = false
+      handleTorque(0)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
   }
 
   // Mouse interaction for grab/drag/release
@@ -205,7 +235,7 @@ export default function TestMode() {
           setSourceType('json')
         }
         setCharDef(def)
-        if (isRunning) startDebug(def)
+        startDebug(def)
       } catch (err) {
         console.error('Import error:', err)
         alert(`Import error: ${err.message}`)
@@ -583,6 +613,9 @@ export default function TestMode() {
                       }}
                     >
                       {j.id}
+                      {(j.maxTorque ?? 0) === 0 && (
+                        <span style={{ fontSize: 7, opacity: 0.4, marginLeft: 4, fontStyle: 'italic' }}>passive</span>
+                      )}
                       <span style={{ fontSize: 8, opacity: 0.5, marginLeft: 3 }}>
                         {(j.type || 'revolute') === 'prismatic' ? '↔' : '↻'}
                       </span>
@@ -593,36 +626,86 @@ export default function TestMode() {
                 {/* Torque/force controls */}
                 {selectedJoint && (
                   <>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        className="btn"
-                        onMouseDown={() => handleTorque(-1)}
-                        onMouseUp={() => handleTorque(0)}
-                        onMouseLeave={() => handleTorque(0)}
-                        style={{
-                          flex: 1, justifyContent: 'center', padding: '8px',
-                          background: torqueDirection === -1 ? 'rgba(224,90,90,0.15)' : 'var(--surface)',
-                          color: torqueDirection === -1 ? 'var(--red)' : 'var(--text-dim)',
-                          border: `1px solid ${torqueDirection === -1 ? 'rgba(224,90,90,0.3)' : 'var(--border)'}`,
-                        }}
-                      >
-                        ← {charDef.joints.find(j => j.id === selectedJoint)?.type === 'prismatic' ? 'force' : 'torque'} −
-                      </button>
-                      <button
-                        className="btn"
-                        onMouseDown={() => handleTorque(1)}
-                        onMouseUp={() => handleTorque(0)}
-                        onMouseLeave={() => handleTorque(0)}
-                        style={{
-                          flex: 1, justifyContent: 'center', padding: '8px',
-                          background: torqueDirection === 1 ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
-                          color: torqueDirection === 1 ? 'var(--green)' : 'var(--text-dim)',
-                          border: `1px solid ${torqueDirection === 1 ? 'rgba(74,222,128,0.2)' : 'var(--border)'}`,
-                        }}
-                      >
-                        {charDef.joints.find(j => j.id === selectedJoint)?.type === 'prismatic' ? 'force' : 'torque'} + →
-                      </button>
-                    </div>
+                    {(() => {
+                      const isPrismatic = charDef.joints.find(j => j.id === selectedJoint)?.type === 'prismatic'
+                      const label = isPrismatic ? 'force' : 'torque'
+                      const absMag = Math.abs(torqueDirection)
+                      const pct = Math.round(absMag * 100)
+                      const isActive = torqueDirection !== 0
+
+                      return (
+                        <>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              className="btn"
+                              onMouseDown={(e) => handleTorqueDragStart(e, -1)}
+                              style={{
+                                flex: 1, justifyContent: 'center', padding: '8px',
+                                background: torqueDirection < 0 ? 'rgba(224,90,90,0.15)' : 'var(--surface)',
+                                color: torqueDirection < 0 ? 'var(--red)' : 'var(--text-dim)',
+                                border: `1px solid ${torqueDirection < 0 ? 'rgba(224,90,90,0.3)' : 'var(--border)'}`,
+                                cursor: 'ew-resize',
+                                userSelect: 'none',
+                              }}
+                            >
+                              ← {label} −
+                            </button>
+                            <button
+                              className="btn"
+                              onMouseDown={(e) => handleTorqueDragStart(e, 1)}
+                              style={{
+                                flex: 1, justifyContent: 'center', padding: '8px',
+                                background: torqueDirection > 0 ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
+                                color: torqueDirection > 0 ? 'var(--green)' : 'var(--text-dim)',
+                                border: `1px solid ${torqueDirection > 0 ? 'rgba(74,222,128,0.2)' : 'var(--border)'}`,
+                                cursor: 'ew-resize',
+                                userSelect: 'none',
+                              }}
+                            >
+                              {label} + →
+                            </button>
+                          </div>
+
+                          {/* Torque magnitude indicator */}
+                          {isActive && (
+                            <div style={{
+                              padding: '4px 8px',
+                              background: 'rgba(255,255,255,0.03)',
+                              borderRadius: 5,
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              textAlign: 'center',
+                            }}>
+                              <div style={{
+                                height: 4,
+                                borderRadius: 2,
+                                background: 'rgba(255,255,255,0.06)',
+                                overflow: 'hidden',
+                                marginBottom: 4,
+                              }}>
+                                <div style={{
+                                  width: `${pct}%`,
+                                  height: '100%',
+                                  borderRadius: 2,
+                                  background: torqueDirection > 0 ? 'var(--green)' : 'var(--red)',
+                                  transition: 'width 0.05s',
+                                }} />
+                              </div>
+                              <span style={{
+                                fontSize: 9,
+                                fontFamily: '"DM Mono", monospace',
+                                color: torqueDirection > 0 ? 'var(--green)' : 'var(--red)',
+                              }}>
+                                {torqueDirection > 0 ? '+' : ''}{(torqueDirection * 100).toFixed(0)}% {label}
+                              </span>
+                              <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginLeft: 6 }}>
+                                drag left/right to adjust
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
+
 
                     {/* Selected joint details */}
                     {measurements?.joints?.[selectedJoint] && (() => {
@@ -638,18 +721,31 @@ export default function TestMode() {
                           color: 'rgba(255,255,255,0.5)',
                           lineHeight: 1.8,
                         }}>
+                          {(jDef?.maxTorque ?? 0) === 0 && (
+                            <div style={{
+                              color: 'rgba(255,255,255,0.35)',
+                              fontStyle: 'italic',
+                              marginBottom: 4,
+                              padding: '3px 6px',
+                              background: 'rgba(255,255,255,0.03)',
+                              borderRadius: 4,
+                              border: '1px solid rgba(255,255,255,0.06)',
+                            }}>
+                              passive joint — unactuated during training. Test torque applied for verification only.
+                            </div>
+                          )}
                           {j.type === 'prismatic' ? (
                             <>
                               <div>position: <span style={{ color: '#66aaff' }}>{j.translation?.toFixed(3)}m</span></div>
                               <div>range: [{j.lower?.toFixed(2)}, {j.upper?.toFixed(2)}]m</div>
-                              <div>max force: {jDef?.maxTorque || 0}N</div>
+                              <div>max force: {jDef?.maxTorque || 0}N {(jDef?.maxTorque ?? 0) === 0 && '(passive)'}</div>
                             </>
                           ) : (
                             <>
                               <div>angle: <span style={{ color: '#ff9966' }}>{(j.angle * 180 / Math.PI).toFixed(1)}°</span></div>
                               <div>range: [{(j.lower * 180 / Math.PI).toFixed(0)}°, {(j.upper * 180 / Math.PI).toFixed(0)}°]</div>
                               <div>angular vel: {j.angVel?.toFixed(2)} rad/s</div>
-                              <div>max torque: {jDef?.maxTorque || 0}Nm</div>
+                              <div>max torque: {jDef?.maxTorque || 0}Nm {(jDef?.maxTorque ?? 0) === 0 && '(passive)'}</div>
                             </>
                           )}
                           <div>damping: {jDef?.damping ?? 0}</div>

@@ -35,17 +35,14 @@ export default function App() {
         }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
             <h1 style={{
-              fontFamily: 'Syne, sans-serif',
-              fontWeight: 800,
-              fontSize: 22,
-              letterSpacing: '-0.02em',
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 600,
+              fontSize: 20,
+              letterSpacing: '-0.03em',
               color: '#fff',
             }}>
-              RL<span style={{ color: 'var(--gold)' }}>Forge</span>
+              2D Robotics <span style={{ color: 'var(--gold)', fontWeight: 300 }}>Sandbox</span>
             </h1>
-            <span style={{ fontSize: 10, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>
-              2D RL WORKBENCH
-            </span>
           </div>
         </header>
 
@@ -80,7 +77,7 @@ export default function App() {
           fontSize: 9, color: 'rgba(255,255,255,0.15)', letterSpacing: '0.08em',
           marginTop: 16,
         }}>
-          <span>RLFORGE · 2D RL WORKBENCH</span>
+          <span>2D ROBOTICS SANDBOX</span>
           <span>BUILD · TEST · TRAIN · INFER</span>
         </footer>
 

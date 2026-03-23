@@ -931,7 +931,7 @@ export default function App() {
           paddingTop: 12, borderTop: '1px solid var(--border)',
           fontSize: 9, color: 'rgba(255,255,255,0.15)', letterSpacing: '0.08em',
         }}>
-          <span>RLFORGE · M3 Terrain + Creature Builder</span>
+          <span>2D ROBOTICS SANDBOX</span>
           <span>PD controllers · procedural terrain · share with friends</span>
         </footer>
 

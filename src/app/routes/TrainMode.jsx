@@ -47,6 +47,13 @@ const ENV_CONFIGS = {
     ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, numEpochs: 10 },
     tooltip: 'Swing-up double pendulum (Rapier2D). Two links hang from a fixed pivot — only the elbow joint is actuated. The agent must pump energy to swing the tip above the pivot. 10D observation, 1 effective action. Solved at mean reward ≥ 500.',
   },
+  'acrobot-damped': {
+    label: 'Acrobot (damped)',
+    desc: 'Double pendulum with friction · 10 obs · 2 actions',
+    solvedThreshold: 500,
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, numEpochs: 10 },
+    tooltip: 'Same as Acrobot but with joint damping (friction=2.0). The pendulum loses energy and settles, making the swing-up task easier to learn. Compare training curves with the frictionless version.',
+  },
 }
 
 const TOOLTIPS = {

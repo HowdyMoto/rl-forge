@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head><title>Joint Diagnostic</title></head>
+<body>
+<pre id="log" style="font-family: monospace; font-size: 12px;"></pre>
+<script type="module">
+import RAPIER from '@dimforge/rapier2d'
+import { parseMJCF } from './src/formats/mjcf/parser.js'
+import { UnifiedRapierEnv } from './src/env/unifiedEnv.js'
+
+const log = (msg) => {
+  document.getElementById('log').textContent += msg + '\n'
+  console.log(msg)
+}
+
+async function run() {
+  log('=== JOINT & BODY DIAGNOSTIC ===')
+  log('')
+
+  const mjcf = await fetch('./src/envs/acrobot_damped.mjcf').then(r => r.text())
+  const def = parseMJCF(mjcf)
+
+  const env = new UnifiedRapierEnv(def, {
+    controlMode: 'velocity', terrain: false, gravity: -9.81,
+    physicsHz: 240, policyHz: 30, maxSteps: 999999,
+  })
+  env.reset()
+
+  // ─── Dump all body properties ──────────────────────────────────────
+  log('--- Body properties ---')
+  for (const bDef of def.bodies) {
+    const rb = env.bodies[bDef.id]
+    if (!rb) continue
+    const p = rb.translation()
+    log(`  ${bDef.id}:`)
+    log(`    pos=(${p.x.toFixed(4)}, ${p.y.toFixed(4)}) rot=${rb.rotation().toFixed(4)}`)
+    if (!bDef.fixed) {
+      log(`    mass=${rb.mass().toFixed(3)}`)
+      log(`    linearDamping=${rb.linearDamping().toFixed(3)}`)
+      log(`    angularDamping=${rb.angularDamping().toFixed(3)}`)
+      log(`    linvel=(${rb.linvel().x.toFixed(4)}, ${rb.linvel().y.toFixed(4)})`)
+      log(`    angvel=${rb.angvel().toFixed(4)}`)
+      log(`    isFixed=${rb.isFixed()} isSleeping=${rb.isSleeping()}`)
+      log(`    gravityScale=${rb.gravityScale()}`)
+    } else {
+      log(`    FIXED`)
+    }
+  }
+
+  // ─── Dump all joint properties ─────────────────────────────────────
+  log('')
+  log('--- Joint properties ---')
+  for (const jDef of def.joints) {
+    const joint = env.joints[jDef.id]
+    if (!joint) { log(`  ${jDef.id}: NOT FOUND`); continue }
+    const a1 = joint.anchor1()
+    const a2 = joint.anchor2()
+    log(`  ${jDef.id}:`)
+    log(`    type=${joint.type()} (0=revolute, 1=fixed, 2=prismatic)`)
+    log(`    anchor1=(${a1.x.toFixed(3)}, ${a1.y.toFixed(3)})`)
+    log(`    anchor2=(${a2.x.toFixed(3)}, ${a2.y.toFixed(3)})`)
+    log(`    contactsEnabled=${joint.contactsEnabled()}`)
+    // UnitImpulseJoint properties (limits)
+    if (joint.limitsEnabled !== undefined) {
+      log(`    limitsEnabled=${joint.limitsEnabled()}`)
+      log(`    limitsMin=${joint.limitsMin().toFixed(3)} limitsMax=${joint.limitsMax().toFixed(3)}`)
+    }
+  }
+
+  // ─── Step 1: Let it settle, then check state ──────────────────────
+  log('')
+  log('--- After 5s settling (150 frames, no torque) ---')
+  for (let f = 0; f < 150; f++) {
+    for (let sub = 0; sub < 8; sub++) env.world.step()
+  }
+  for (const bDef of def.bodies) {
+    if (bDef.fixed) continue
+    const rb = env.bodies[bDef.id]
+    const p = rb.translation()
+    log(`  ${bDef.id}: pos=(${p.x.toFixed(4)}, ${p.y.toFixed(4)}) angvel=${rb.angvel().toFixed(4)} sleeping=${rb.isSleeping()}`)
+  }
+
+  // ─── Step 2: Apply torque impulse, step 1 frame, check ────────────
+  log('')
+  log('--- Apply torqueImpulse=0.02 to link1, step 1 frame ---')
+  const link1 = env.bodies['link1']
+  log(`  Before: angvel=${link1.angvel().toFixed(4)}`)
+  link1.applyTorqueImpulse(0.02, true)
+  for (let sub = 0; sub < 8; sub++) env.world.step()
+  log(`  After 1 frame: angvel=${link1.angvel().toFixed(4)}`)
+
+  // ─── Step 3: Step 30 more frames with NO torque, verify it decays ──
+  log('')
+  log('--- Step 30 frames with NO torque (1 sec) ---')
+  for (let f = 0; f < 30; f++) {
+    for (let sub = 0; sub < 8; sub++) env.world.step()
+    if (f % 10 === 0) {
+      log(`  f=${f}: angvel=${link1.angvel().toFixed(4)} pos=(${link1.translation().x.toFixed(4)}, ${link1.translation().y.toFixed(4)})`)
+    }
+  }
+
+  // ─── Step 4: Apply addTorque, check if it persists ─────────────────
+  log('')
+  log('--- Apply addTorque(1.0) to link1, step 3 frames, check persistence ---')
+  link1.addTorque(1.0, true)
+  for (let f = 0; f < 3; f++) {
+    for (let sub = 0; sub < 8; sub++) env.world.step()
+    log(`  f=${f}: angvel=${link1.angvel().toFixed(4)}`)
+  }
+  log('  (If angvel keeps increasing across frames, addTorque persists)')
+
+  // ─── Step 5: resetTorques then step, verify it stops ───────────────
+  log('')
+  log('--- resetTorques, step 3 frames ---')
+  link1.resetTorques(true)
+  for (let f = 0; f < 3; f++) {
+    for (let sub = 0; sub < 8; sub++) env.world.step()
+    log(`  f=${f}: angvel=${link1.angvel().toFixed(4)}`)
+  }
+  log('  (angvel should decrease if torque is truly cleared)')
+
+  log('')
+  log('=== DONE ===')
+  env.dispose()
+}
+
+run().catch(e => log('ERROR: ' + e.message + '\n' + e.stack))
+</script>
+</body>
+</html>

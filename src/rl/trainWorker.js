@@ -37,6 +37,11 @@ const CHAR_LOADERS = {
   hopper: () => import('../env/characters/hopper.js').then(m => m.HOPPER),
   walker2d: () => import('../env/characters/walker2d.js').then(m => m.WALKER2D),
   acrobot: () => import('../env/characters/acrobot.js').then(m => m.ACROBOT),
+  'acrobot-damped': async () => {
+    const { parseMJCF } = await import('../formats/mjcf/parser.js')
+    const mjcf = await fetch(new URL('../envs/acrobot_damped.mjcf', import.meta.url)).then(r => r.text())
+    return parseMJCF(mjcf)
+  },
   terrain: () => import('../env/characters/biped.js').then(m => m.BIPED),
 }
 
@@ -395,28 +400,30 @@ async function runPhysicsDebug(config) {
       postMessage({ type: 'STATUS', msg: 'Physics debug · reset' })
     }
 
-    for (let sub = 0; sub < SUBSTEPS; sub++) {
-      // Joint torque/force testing
-      if (debugActiveJoint && debugDirection !== 0) {
-        const jDef = finalCharDef.joints.find(j => j.id === debugActiveJoint)
-        if (jDef) {
-          const bodyA = env.bodies[jDef.bodyA]
-          const bodyB = env.bodies[jDef.bodyB]
-          if (bodyA && bodyB) {
-            if (jDef.type === 'prismatic') {
-              // Prismatic: apply force along the joint axis
-              const axis = jDef.axis || [1, 0]
-              const force = debugDirection * (jDef.maxTorque ?? 10) * 0.5
-              bodyB.addForce({ x: axis[0] * force, y: axis[1] * force }, true)
-            } else {
-              // Revolute: apply torque
-              const torque = debugDirection * (jDef.maxTorque ?? 300) * 0.5
-              bodyB.addTorque(torque, true)
-              bodyA.addTorque(-torque, true)
-            }
+    // Apply debug torque as IMPULSE (one-shot, doesn't persist across steps)
+    if (debugActiveJoint && debugDirection !== 0) {
+      const jDef = finalCharDef.joints.find(j => j.id === debugActiveJoint)
+      if (jDef) {
+        const bodyA = env.bodies[jDef.bodyA]
+        const bodyB = env.bodies[jDef.bodyB]
+        if (bodyA && bodyB) {
+          if (jDef.type === 'prismatic') {
+            const axis = jDef.axis || [1, 0]
+            const impulse = debugDirection * Math.max(jDef.maxTorque ?? 10, 2) * 0.02
+            bodyB.applyImpulse({ x: axis[0] * impulse, y: axis[1] * impulse }, true)
+          } else {
+            const mass = bodyB.mass()
+            const armLen = 0.25
+            const gravityTorque = mass * 9.81 * armLen
+            const impulse = debugDirection * gravityTorque * 0.24
+            bodyB.applyTorqueImpulse(impulse, true)
+            if (!bodyA.isFixed()) bodyA.applyTorqueImpulse(-impulse * 0.3, true)
           }
         }
       }
+    }
+
+    for (let sub = 0; sub < SUBSTEPS; sub++) {
 
       // Mouse grab: move body toward cursor via velocity targeting
       if (debugGrab) {

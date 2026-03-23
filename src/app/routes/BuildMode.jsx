@@ -4,8 +4,8 @@ export default function BuildMode() {
       <div className="panel" style={{ padding: 40, textAlign: 'center' }}>
         <div style={{ fontSize: 32, marginBottom: 12 }}>◧</div>
         <h2 style={{
-          fontFamily: 'Syne, sans-serif',
-          fontWeight: 700,
+          fontFamily: 'Inter, sans-serif',
+          fontWeight: 600,
           fontSize: 18,
           color: '#fff',
           marginBottom: 8,

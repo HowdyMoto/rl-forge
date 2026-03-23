@@ -130,9 +130,24 @@ export class UnifiedRapierEnv {
 
     // Character bodies
     for (const bodyDef of def.bodies) {
+      // Compute damping for this body from connected joints
+      let bodyLinDamping = 0
+      let bodyAngDamping = 0
+      if (!bodyDef.fixed) {
+        for (const jDef of def.joints) {
+          if (jDef.bodyB === bodyDef.id && (jDef.damping ?? 0) > 0) {
+            bodyLinDamping = Math.max(bodyLinDamping, jDef.damping)
+            bodyAngDamping = Math.max(bodyAngDamping, jDef.damping)
+          }
+        }
+      }
+
       const rbDesc = bodyDef.fixed
         ? RAPIER.RigidBodyDesc.fixed()
         : RAPIER.RigidBodyDesc.dynamic()
+            .setCanSleep(false)
+            .setLinearDamping(bodyLinDamping)
+            .setAngularDamping(bodyAngDamping)
       rbDesc.setTranslation(bodyDef.spawnX ?? 0, bodyDef.spawnY ?? 1.0)
       rbDesc.setRotation(bodyDef.spawnAngle ?? 0)
 
@@ -154,7 +169,7 @@ export class UnifiedRapierEnv {
       colliderDesc
         .setFriction(bodyDef.friction ?? 0.3)
         .setRestitution(bodyDef.restitution ?? 0.15)
-        .setDensity((bodyDef.mass ?? 1.0) / this._bodyVolume(bodyDef))
+        .setMass(bodyDef.mass ?? 1.0)
 
       // Foot sensor
       if (bodyDef.isFootBody) {
@@ -171,7 +186,10 @@ export class UnifiedRapierEnv {
         this.footSensorHandles[bodyDef.id] = sensorCollider.handle
       }
 
-      this.world.createCollider(colliderDesc, rb)
+      // Skip collider for pure pivot bodies (e.g., prismatic anchor)
+      if (!bodyDef.noCollider) {
+        this.world.createCollider(colliderDesc, rb)
+      }
       this.bodies[bodyDef.id] = rb
     }
 
@@ -188,13 +206,15 @@ export class UnifiedRapierEnv {
       if (jointDef.type === 'prismatic') {
         // Prismatic (slider) joint
         const axis = jointDef.axis || [1, 0]
+        const lo = jointDef.lowerLimit ?? -2.4
+        const hi = jointDef.upperLimit ?? 2.4
         const jointData = RAPIER.JointData.prismatic(
           { x: axA, y: ayA },
           { x: axB, y: ayB },
           { x: axis[0], y: axis[1] }
         )
         jointData.limitsEnabled = true
-        jointData.limits = [jointDef.lowerLimit ?? -2.4, jointDef.upperLimit ?? 2.4]
+        jointData.limits = [lo, hi]
         joint = this.world.createImpulseJoint(jointData, bodyA, bodyB, true)
       } else {
         // Revolute (hinge) joint — default
@@ -202,15 +222,19 @@ export class UnifiedRapierEnv {
           { x: axA, y: ayA },
           { x: axB, y: ayB }
         )
-        jointData.limitsEnabled = true
-        jointData.limits = [jointDef.lowerLimit ?? -Math.PI, jointDef.upperLimit ?? Math.PI]
         joint = this.world.createImpulseJoint(jointData, bodyA, bodyB, true)
+        // Set limits AFTER creation (JointData.limits doesn't propagate reliably)
+        const lo = jointDef.lowerLimit ?? -Math.PI
+        const hi = jointDef.upperLimit ?? Math.PI
+        if (lo > -6.28 || hi < 6.28) {  // only enable if not full-rotation
+          joint.setLimits(lo, hi)
+        }
       }
 
-      // Passive damping
-      if ((jointDef.damping ?? 0) > 0) {
-        joint.configureMotorVelocity(0.0, jointDef.damping)
-      }
+      // Disable collisions between jointed bodies
+      joint.setContactsEnabled(false)
+
+      // Damping is applied via Rapier's built-in body linearDamping/angularDamping
 
       this.joints[jointDef.id] = joint
     }
@@ -630,7 +654,57 @@ export class UnifiedRapierEnv {
         angle: rb.rotation(),
       }
     }
-    snapshot._footContacts = { ...this._footContacts }
+    // Foot contacts with positions
+    // Find the contact point by sampling the collider's lowest point
+    const footContacts = {}
+    const groundY = this.useTerrain ? null : (this.def.ground?.y ?? 0)
+    for (const bodyDef of this.def.bodies) {
+      if (!bodyDef.isFootBody) continue
+      const inContact = this._footContacts[bodyDef.id] || false
+      const rb = this.bodies[bodyDef.id]
+      if (!rb) { footContacts[bodyDef.id] = false; continue }
+      if (inContact) {
+        const pos = rb.translation()
+        const rot = rb.rotation()
+        const cos = Math.cos(rot)
+        const sin = Math.sin(rot)
+
+        // Sample corners/extremes of the shape in local space,
+        // transform to world, find the lowest point
+        const localPoints = []
+        if (bodyDef.shape === 'capsule') {
+          const halfLen = (bodyDef.length || 0.3) / 2
+          const r = bodyDef.radius || 0.04
+          // Top and bottom cap centers, plus side extremes
+          localPoints.push([0, -halfLen], [0, halfLen], [-r, -halfLen], [r, -halfLen], [-r, halfLen], [r, halfLen])
+        } else if (bodyDef.shape === 'box') {
+          const hw = (bodyDef.w || 0.1) / 2
+          const hh = (bodyDef.h || 0.1) / 2
+          localPoints.push([-hw, -hh], [hw, -hh], [-hw, hh], [hw, hh])
+        } else if (bodyDef.shape === 'ball') {
+          const r = bodyDef.radius || 0.05
+          localPoints.push([0, -r], [0, r], [-r, 0], [r, 0])
+        }
+
+        let lowestY = Infinity
+        let lowestX = pos.x
+        for (const [lx, ly] of localPoints) {
+          const wx = pos.x + lx * cos - ly * sin
+          const wy = pos.y + lx * sin + ly * cos
+          if (wy < lowestY) {
+            lowestY = wy
+            lowestX = wx
+          }
+        }
+
+        // Place contact at ground level directly below the lowest point
+        const contactY = groundY !== null ? groundY : lowestY
+        footContacts[bodyDef.id] = { x: lowestX, y: contactY }
+      } else {
+        footContacts[bodyDef.id] = false
+      }
+    }
+    snapshot._footContacts = footContacts
     if (this.useTerrain && this.terrain) {
       snapshot._terrain = this.terrain
     }

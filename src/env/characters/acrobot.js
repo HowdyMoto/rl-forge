@@ -92,7 +92,7 @@ export const ACROBOT = {
       bodyA: 'torso',       // anchor
       bodyB: 'link1',
       anchorA: [0, 0],      // center of anchor
-      anchorB: [0, -0.25],  // bottom of link1
+      anchorB: [0, 0.25],   // top of link1 (link1 hangs below anchor)
       lowerLimit: -Math.PI * 2,
       upperLimit: Math.PI * 2,
       maxTorque: 0,         // PASSIVE -- unactuated joint
@@ -104,8 +104,8 @@ export const ACROBOT = {
       id: 'elbow',
       bodyA: 'link1',
       bodyB: 'link2',
-      anchorA: [0, 0.25],   // top of link1
-      anchorB: [0, -0.25],  // bottom of link2
+      anchorA: [0, -0.25],  // bottom of link1
+      anchorB: [0, 0.25],   // top of link2 (link2 hangs below link1)
       lowerLimit: -Math.PI * 2,
       upperLimit: Math.PI * 2,
       maxTorque: 10.0,      // ACTUATED -- only this joint has torque
