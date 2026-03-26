@@ -7,7 +7,21 @@
       "Bash(grep -r hrefs*=s*['']/ /d/GitHub_HowdyMoto/rl-forge --include=*.html --include=*.jsx --include=*.js)",
       "Bash(node --input-type=module -e \":*)",
       "WebFetch(domain:mujoco.readthedocs.io)",
-      "Bash(npx --version)"
+      "Bash(npx --version)",
+      "Bash(find /d/GitHub_HowdyMoto/rl-forge -maxdepth 3 -type f \\\\\\(-name *.config.* -o -name *.setup.* -o -name *.test.* -o -name *.spec.* \\\\\\))",
+      "Bash(xargs cat:*)",
+      "Bash(xargs head:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(curl -s http://localhost:5173/tests/test_bodyCreation.html)",
+      "Bash(node -e \":*)",
+      "Bash(for i:*)",
+      "Bash(do echo:*)",
+      "Bash(done)",
+      "Bash(find /d/GitHub_HowdyMoto/rl-forge -type f \\\\\\(-name *registry* -o -name *index* -o -name characters.js \\\\\\))",
+      "Bash(node -e \"console.log\\(Buffer.from\\(''6e65772055524c28277261706965725f7761736d32645f62672e7761736d272c20223c64656c657465643e22293b'',''hex''\\).toString\\(\\)\\)\")",
+      "Read(//d/tmp/**)",
+      "Bash(curl -sL https://registry.npmjs.org/@dimforge/rapier2d-compat/-/rapier2d-compat-0.14.0.tgz)",
+      "Bash(tar xzf:*)"
     ]
   }
 }

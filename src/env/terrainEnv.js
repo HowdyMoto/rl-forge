@@ -12,7 +12,7 @@
  *   - Procedural terrain (gaps, ramps, stairs, bumps)
  */
 
-import RAPIER from '@dimforge/rapier2d'
+import * as RAPIER from '@dimforge/rapier2d-compat'
 import { generateTerrain, sampleHeightfield } from './terrain.js'
 
 // Physics at 240Hz, policy at 30Hz → 8 substeps per policy step

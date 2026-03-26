@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Reset Perturbation</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv, HOPPER } from './helpers.js'
+
+describe('Reset Perturbation', () => {
+  it('body positions stay within perturbation range over many resets', () => {
+    const env = createHopperEnv()
+    const N = 50
+
+    for (let trial = 0; trial < N; trial++) {
+      env.reset()
+      for (const bDef of HOPPER.bodies) {
+        if (bDef.fixed) continue
+        const rb = env.bodies[bDef.id]
+        const pos = rb.translation()
+        const expectedX = bDef.spawnX ?? 0
+        const expectedY = bDef.spawnY ?? 0
+
+        // Perturbation: ±0.05 for X, ±0.025 for Y (from unifiedEnv.js L315-316)
+        assert.near(pos.x, expectedX, 0.1,
+          `Trial ${trial}, ${bDef.id} x=${pos.x.toFixed(4)} not near spawnX=${expectedX}`)
+        assert.near(pos.y, expectedY, 0.1,
+          `Trial ${trial}, ${bDef.id} y=${pos.y.toFixed(4)} not near spawnY=${expectedY}`)
+      }
+    }
+    env.dispose()
+  })
+
+  it('body angles stay within perturbation range over many resets', () => {
+    const env = createHopperEnv()
+    const N = 50
+
+    for (let trial = 0; trial < N; trial++) {
+      env.reset()
+      for (const bDef of HOPPER.bodies) {
+        if (bDef.fixed) continue
+        const rb = env.bodies[bDef.id]
+        const angle = rb.rotation()
+        const expectedAngle = bDef.spawnAngle ?? 0
+
+        // Perturbation: ±0.15 rad
+        assert.near(angle, expectedAngle, 0.2,
+          `Trial ${trial}, ${bDef.id} angle=${angle.toFixed(4)} not near spawnAngle=${expectedAngle}`)
+      }
+    }
+    env.dispose()
+  })
+
+  it('body velocities stay within perturbation range over many resets', () => {
+    const env = createHopperEnv()
+    const N = 50
+
+    for (let trial = 0; trial < N; trial++) {
+      env.reset()
+      for (const bDef of HOPPER.bodies) {
+        if (bDef.fixed) continue
+        const rb = env.bodies[bDef.id]
+        const vel = rb.linvel()
+        const angvel = rb.angvel()
+
+        // Perturbation: ±0.25 for linvel, ±0.25 for angvel
+        assert.near(vel.x, 0, 0.3, `Trial ${trial}, ${bDef.id} vx=${vel.x.toFixed(4)} too large`)
+        assert.near(vel.y, 0, 0.3, `Trial ${trial}, ${bDef.id} vy=${vel.y.toFixed(4)} too large`)
+        assert.near(angvel, 0, 0.3, `Trial ${trial}, ${bDef.id} angvel=${angvel.toFixed(4)} too large`)
+      }
+    }
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

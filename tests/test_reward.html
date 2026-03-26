@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Reward Computation</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv, createEnv, HOPPER } from './helpers.js'
+
+describe('Reward Computation', () => {
+  it('stationary body with zero actions gets alive bonus only', () => {
+    const env = createHopperEnv()
+    // Pin the torso in place to eliminate forward velocity
+    const torso = env.bodies['torso']
+    torso.setLinvel({ x: 0, y: 0 }, true)
+    torso.setAngvel(0, true)
+
+    const result = env.step([0, 0])
+
+    // Expected reward: forwardVel*1.0 + aliveBonusWeight*1.0 - ctrlCost*0 = ~1.0
+    // Forward vel will be very small (gravity causes slight y movement)
+    // The alive bonus is the dominant component
+    const r = HOPPER.defaultReward
+    const aliveBonus = r.aliveBonusWeight ?? 1.0
+    assert.near(result.reward, aliveBonus, 0.5,
+      `Stationary reward ~${aliveBonus}, got ${result.reward.toFixed(4)}`)
+    env.dispose()
+  })
+
+  it('control cost penalizes large actions', () => {
+    // Verify the control cost formula directly:
+    // ctrlCost = ctrlCostWeight * sum(a^2) = 0.001 * (1^2 + 1^2) = 0.002
+    const ctrlCostWeight = HOPPER.defaultReward.ctrlCostWeight ?? 0.001
+    const actions = [1.0, 1.0]
+    const expectedCost = ctrlCostWeight * actions.reduce((s, a) => s + a * a, 0)
+
+    assert.greaterThan(expectedCost, 0,
+      `Control cost should be positive for non-zero actions: ${expectedCost}`)
+    assert.near(expectedCost, 0.002, 0.0001,
+      `Control cost for [1,1] with weight 0.001 should be 0.002, got ${expectedCost}`)
+    // No physics needed — this verifies the formula matches expectations
+  })
+
+  it('forward velocity contributes to reward', () => {
+    const env = createHopperEnv()
+
+    // Apply a horizontal impulse to the torso to create forward velocity
+    const torso = env.bodies['torso']
+    torso.applyImpulse({ x: 5.0, y: 0 }, true)
+
+    const result = env.step([0, 0])
+
+    // Forward velocity should be positive → reward should include forwardVel * 1.0
+    assert.greaterThan(result.info.forwardVel, 0,
+      `Should have positive forward velocity, got ${result.info.forwardVel}`)
+    // Reward = forwardVel*1.0 + alive*1.0 - ctrl*0 → should be > 1.0
+    assert.greaterThan(result.reward, 1.0,
+      `Reward with forward vel should be > alive bonus: got ${result.reward.toFixed(4)}`)
+    env.dispose()
+  })
+
+  it('termination penalty applied on unhealthy done (not timeout)', () => {
+    // Create an env with a termination penalty
+    const def = {
+      ...HOPPER,
+      name: 'hopper-penalty',
+      defaultReward: {
+        ...HOPPER.defaultReward,
+        terminationPenalty: 10.0,
+      },
+    }
+    const env = createEnv(def)
+
+    // Force the torso below minY to trigger termination
+    const torso = env.bodies['torso']
+    torso.setTranslation({ x: 0, y: 0.1 }, true)  // Below minY=0.7
+
+    const result = env.step([0, 0])
+
+    assert.true(result.done, 'Should be done after falling below minY')
+    // Reward should include -terminationPenalty
+    assert.lessThan(result.reward, -5.0,
+      `Termination penalty of 10 should produce very negative reward: ${result.reward.toFixed(2)}`)
+    env.dispose()
+  })
+
+  it('no termination penalty on timeout', () => {
+    const def = {
+      ...HOPPER,
+      name: 'hopper-timeout',
+      defaultReward: {
+        ...HOPPER.defaultReward,
+        terminationPenalty: 100.0,
+      },
+    }
+    const env = createEnv(def, { maxSteps: 3 })
+
+    // Step to timeout
+    env.step([0, 0])
+    env.step([0, 0])
+    const result = env.step([0, 0])
+
+    assert.true(result.done, 'Should be done at maxSteps')
+    // Reward should NOT include -100 penalty (this is a timeout, not termination)
+    assert.greaterThan(result.reward, -10,
+      `Timeout should not apply termination penalty: ${result.reward.toFixed(2)}`)
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Damping</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createTwoBodyEnv } from './helpers.js'
+
+describe('Damping', () => {
+  it('angular damping decays angular velocity', () => {
+    const env = createTwoBodyEnv({ damping: 5.0, maxTorque: 0 })
+    const arm = env.bodies['arm']
+
+    // Give it a spin
+    arm.applyTorqueImpulse(0.5, true)
+
+    // Step a few frames to let it spin
+    for (let i = 0; i < 5; i++) env.step([0])
+    const angvel0 = Math.abs(arm.angvel())
+
+    // Step more frames — damping should reduce angvel
+    for (let i = 0; i < 30; i++) env.step([0])
+    const angvel1 = Math.abs(arm.angvel())
+
+    assert.greaterThan(angvel0, 0.01, `Should have initial angvel: ${angvel0}`)
+    assert.lessThan(angvel1, angvel0,
+      `Angular velocity should decay: ${angvel0.toFixed(4)} → ${angvel1.toFixed(4)}`)
+    env.dispose()
+  })
+
+  it('linear damping decays linear velocity', () => {
+    // Compare high-damping vs low-damping on the same arm
+    const envHigh = createTwoBodyEnv({ damping: 10.0, maxTorque: 0 })
+    const envLow = createTwoBodyEnv({ damping: 0.1, maxTorque: 0 })
+
+    // Same impulse, zero perturbation
+    for (const env of [envHigh, envLow]) {
+      const arm = env.bodies['arm']
+      arm.setLinvel({ x: 0, y: 0 }, true)
+      arm.setAngvel(0, true)
+      arm.applyImpulse({ x: 1.0, y: 0 }, true)
+    }
+
+    for (let i = 0; i < 30; i++) {
+      envHigh.step([0])
+      envLow.step([0])
+    }
+
+    const vxHigh = Math.abs(envHigh.bodies['arm'].linvel().x)
+    const vxLow = Math.abs(envLow.bodies['arm'].linvel().x)
+
+    // Low-damping arm should retain more horizontal velocity
+    assert.greaterThan(vxLow, vxHigh,
+      `Low-damping vx (${vxLow.toFixed(4)}) should be > high-damping vx (${vxHigh.toFixed(4)})`)
+    envHigh.dispose()
+    envLow.dispose()
+  })
+
+  it('zero damping preserves angular velocity better than high damping', () => {
+    // Compare zero-damping vs high-damping: zero-damping should retain more angvel
+    const envZero = createTwoBodyEnv({ damping: 0, maxTorque: 0 })
+    const envHigh = createTwoBodyEnv({ damping: 10.0, maxTorque: 0 })
+
+    // Give both the same impulse, zero out perturbation first
+    for (const env of [envZero, envHigh]) {
+      const arm = env.bodies['arm']
+      arm.setAngvel(0, true)
+      arm.setLinvel({ x: 0, y: 0 }, true)
+      arm.applyTorqueImpulse(0.3, true)
+    }
+
+    // Step both for 30 frames
+    for (let i = 0; i < 30; i++) {
+      envZero.step([0])
+      envHigh.step([0])
+    }
+
+    const angvelZero = Math.abs(envZero.bodies['arm'].angvel())
+    const angvelHigh = Math.abs(envHigh.bodies['arm'].angvel())
+
+    // Zero-damping arm should have significantly more angular velocity remaining
+    assert.greaterThan(angvelZero, angvelHigh,
+      `Zero-damping (${angvelZero.toFixed(4)}) should retain more angvel than high-damping (${angvelHigh.toFixed(4)})`)
+    envZero.dispose()
+    envHigh.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

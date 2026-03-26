@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Termination Logic</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv, createEnv, HOPPER } from './helpers.js'
+
+describe('Termination Logic', () => {
+  it('normal standing pose is healthy (done=false)', () => {
+    const env = createHopperEnv()
+    const result = env.step([0, 0])
+
+    assert.true(result.info.healthy, 'Should be healthy after first step')
+    assert.false(result.done, 'Should not be done after first step')
+    env.dispose()
+  })
+
+  it('height below minY triggers termination', () => {
+    const env = createHopperEnv()
+    const torso = env.bodies['torso']
+
+    // Force torso below minY (0.7 for hopper)
+    torso.setTranslation({ x: 0, y: 0.1 }, true)
+    torso.setLinvel({ x: 0, y: 0 }, true)
+
+    const result = env.step([0, 0])
+
+    assert.false(result.info.healthy, 'Should be unhealthy below minY')
+    assert.true(result.done, 'Should be done below minY')
+    env.dispose()
+  })
+
+  it('angle exceeding maxAngle triggers termination', () => {
+    const env = createHopperEnv()
+    const torso = env.bodies['torso']
+
+    // Force torso past maxAngle (0.4 rad for hopper)
+    // Set a very large angle and pin position to keep it above minY
+    torso.setRotation(1.5, true)  // Well past 0.4
+    torso.setAngvel(0, true)
+    torso.setLinvel({ x: 0, y: 0 }, true)
+    torso.setTranslation({ x: 0, y: 1.35 }, true)  // Keep above minY
+
+    const result = env.step([0, 0])
+
+    assert.false(result.info.healthy, 'Should be unhealthy past maxAngle')
+    assert.true(result.done, 'Should be done past maxAngle')
+    env.dispose()
+  })
+
+  it('episode times out at maxSteps', () => {
+    const env = createEnv(HOPPER, { maxSteps: 5 })
+
+    // Step to just before timeout
+    for (let i = 0; i < 4; i++) {
+      const r = env.step([0, 0])
+      if (r.done) {
+        // If it fell, reset and try to keep it up
+        env.reset()
+      }
+    }
+
+    // Force it to stay alive past maxSteps
+    env.reset()
+    const torso = env.bodies['torso']
+    // Pin it in healthy position
+    torso.setTranslation({ x: 0, y: 1.35 }, true)
+    torso.setRotation(0, true)
+    torso.setLinvel({ x: 0, y: 0 }, true)
+    torso.setAngvel(0, true)
+
+    // Step 5 times to reach maxSteps
+    let lastResult
+    for (let i = 0; i < 5; i++) {
+      // Keep pinning it each step to prevent falling
+      torso.setTranslation({ x: 0, y: 1.35 }, true)
+      torso.setRotation(0, true)
+      torso.setLinvel({ x: 0, y: 0 }, true)
+      lastResult = env.step([0, 0])
+    }
+
+    assert.true(lastResult.done, 'Should be done at maxSteps')
+    assert.equal(lastResult.info.stepCount, 5, 'Step count should be maxSteps')
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

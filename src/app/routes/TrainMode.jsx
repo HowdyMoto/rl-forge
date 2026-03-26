@@ -7,6 +7,7 @@ import RewardChart from '../../components/RewardChart.jsx'
 import TrainingCharts from '../../components/TrainingCharts.jsx'
 import MetricsPanel from '../../components/MetricsPanel.jsx'
 import HyperParams from '../../components/HyperParams.jsx'
+import SceneHierarchy from '../../components/SceneHierarchy.jsx'
 import Tooltip from '../../components/Tooltip.jsx'
 import { DEFAULT_PPO_CONFIG } from '../../rl/ppo.js'
 import { decodeShareString } from '../../components/SharePanel.jsx'
@@ -21,9 +22,9 @@ const ENV_CONFIGS = {
   },
   cartpole: {
     label: 'CartPole',
-    desc: 'Inverted pendulum · 4 obs · 1 action',
+    desc: 'Inverted pendulum · 9 obs · 1 action',
     solvedThreshold: 450,
-    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 512 },
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, entropyCoef: 0.05 },
     tooltip: 'Classic control benchmark. The agent applies horizontal force to a cart to keep an inverted pendulum upright. 4D observation (position, velocity, pole angle, angular velocity), 1 continuous action. Solved at mean reward ≥ 450.',
   },
   hopper: {
@@ -42,17 +43,38 @@ const ENV_CONFIGS = {
   },
   acrobot: {
     label: 'Acrobot',
-    desc: 'Double pendulum · 10 obs · 2 actions',
+    desc: 'Double pendulum · 10 obs · 1 action',
     solvedThreshold: 500,
     ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, numEpochs: 10 },
-    tooltip: 'Swing-up double pendulum (Rapier2D). Two links hang from a fixed pivot — only the elbow joint is actuated. The agent must pump energy to swing the tip above the pivot. 10D observation, 1 effective action. Solved at mean reward ≥ 500.',
+    tooltip: 'Swing-up double pendulum (Rapier2D). Two links hang from a fixed pivot — only the elbow joint is actuated. The agent must pump energy to swing the tip above the pivot. 10D observation, 1 action. Solved at mean reward ≥ 500.',
   },
   'acrobot-damped': {
     label: 'Acrobot (damped)',
-    desc: 'Double pendulum with friction · 10 obs · 2 actions',
+    desc: 'Double pendulum with friction · 10 obs · 1 action',
     solvedThreshold: 500,
     ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, numEpochs: 10 },
     tooltip: 'Same as Acrobot but with joint damping (friction=2.0). The pendulum loses energy and settles, making the swing-up task easier to learn. Compare training curves with the frictionless version.',
+  },
+  'spinner-constant': {
+    label: 'Spinner (Constant)',
+    desc: 'Match target speed · 9 obs · 1 action',
+    solvedThreshold: 0.9,
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048 },
+    tooltip: 'Rotate a body at exactly 1 revolution per 3 seconds (≈2.09 rad/s). Rewarded for matching the target angular velocity. Tests precision control — the agent must find and maintain a specific speed.',
+  },
+  'spinner-max': {
+    label: 'Spinner (Max)',
+    desc: 'Spin as fast as possible · 9 obs · 1 action',
+    solvedThreshold: 2.0,
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048 },
+    tooltip: 'Spin a body as fast as possible against damping. Reward scales linearly with angular velocity. The simplest possible RL task — should converge quickly to max-torque policy.',
+  },
+  'red-light-green-light': {
+    label: 'Red Light Green Light',
+    desc: 'Stop & go game · 10 obs · 1 action',
+    solvedThreshold: 1.0,
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 4096, numEpochs: 10 },
+    tooltip: 'A signal alternates between green (spin!) and red (stop!). The agent must spin during green phases and brake quickly when the light turns red. Tests reactive control and temporal reasoning.',
   },
 }
 
@@ -89,6 +111,7 @@ export default function TrainMode() {
   const [backend, setBackend] = useState('')
   const [ppoConfig, setPpoConfig] = useState(DEFAULT_PPO_CONFIG)
   const [exportUrl, setExportUrl] = useState(null)
+  const [playbackDiag, setPlaybackDiag] = useState(null)
   const [selectedTab, setSelectedTab] = useState('sim')
   const fileInputRef = useRef(null)
 
@@ -100,6 +123,10 @@ export default function TrainMode() {
   const [debugMode, setDebugMode] = useState(false)
   const [debugJoint, setDebugJoint] = useState(null)
   const [debugDirection, setDebugDirection] = useState(0)
+
+  // Scene hierarchy selection
+  const [sceneSelectedId, setSceneSelectedId] = useState(null)
+  const [sceneSelectedType, setSceneSelectedType] = useState(null)
 
   const isRunning = trainingState === TRAINING_STATES.RUNNING
   const isTerrainMode = envType === 'terrain'
@@ -157,6 +184,9 @@ export default function TrainMode() {
           a.click()
           break
         }
+        case 'PLAYBACK_DIAGNOSTIC':
+          setPlaybackDiag(msg.data)
+          break
       }
     }
     workerRef.current = worker
@@ -172,7 +202,7 @@ export default function TrainMode() {
     const worker = initWorker()
     setMetrics([])
     setEpisodes(0)
-
+    setPlaybackDiag(null)
     setHopperSnapshot(null)
     setExportUrl(null)
     setBestDistance(0)
@@ -257,6 +287,25 @@ export default function TrainMode() {
     }
   }, [])
 
+  const handleSceneSelect = useCallback((id, type) => {
+    setSceneSelectedId(id)
+    setSceneSelectedType(type)
+  }, [])
+
+  const handleScenePropertyChange = useCallback((msg) => {
+    workerRef.current?.postMessage({ type: msg.type, config: msg.config })
+  }, [])
+
+  const handleBodyClick = useCallback((bodyId) => {
+    if (bodyId) {
+      setSceneSelectedId(bodyId)
+      setSceneSelectedType('body')
+    } else {
+      setSceneSelectedId(null)
+      setSceneSelectedType(null)
+    }
+  }, [])
+
   const handleImportPlay = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -301,11 +350,13 @@ export default function TrainMode() {
   // Renderer: universal PhysicsRenderer for all environments
   // TerrainRenderer kept for terrain mode (has terrain-specific drawing)
   const renderSnapshotProps = { snapshot: hopperSnapshot, episodeReward, episodeSteps }
+  const sceneHighlightId = sceneSelectedType === 'body' ? sceneSelectedId : null
+  const canEditScene = trainingState !== TRAINING_STATES.RUNNING
   let simContent
   if (envType === 'terrain') {
     simContent = <TerrainRenderer {...renderSnapshotProps} charDef={customCharDef} onDebugMouse={debugMode ? handleDebugMouse : undefined} />
   } else {
-    simContent = <PhysicsRenderer {...renderSnapshotProps} onDebugMouse={debugMode ? handleDebugMouse : undefined} />
+    simContent = <PhysicsRenderer {...renderSnapshotProps} onDebugMouse={debugMode ? handleDebugMouse : undefined} highlightBodyId={sceneHighlightId} onBodyClick={handleBodyClick} />
   }
 
   // Network description
@@ -320,10 +371,14 @@ export default function TrainMode() {
       }
     }
     const descs = {
-      cartpole: { actor: '4 → 64 → 64 → 1', obs: '[x, ẋ, θ, θ̇]', actions: 'force' },
+      cartpole: { actor: '9 → 64 → 64 → 1', obs: '[cart.y, cart.θ, cart.vx, cart.vy, cart.ω, rail_pos, rail_vel, pole.θ, pole.ω]', actions: '[rail_force]' },
       hopper: { actor: '10 → 128 → 128 → 2', obs: '[y, θ, vx, vy, ω, hip∠, hip·ω, knee∠, knee·ω, contact]', actions: '[τ_hip, τ_knee]' },
       walker2d: { actor: '15 → 128 → 128 → 4', obs: '[y, θ, vx, vy, ω, 4×(j∠, j·ω), Lcontact, Rcontact]', actions: '[τ_lhip, τ_lknee, τ_rhip, τ_rknee]' },
-      acrobot: { actor: '10 → 64 → 64 → 2', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[—, τ_elbow]' },
+      acrobot: { actor: '10 → 64 → 64 → 1', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[τ_elbow]' },
+      'acrobot-damped': { actor: '10 → 64 → 64 → 1', obs: '[y, θ, vx, vy, ω, shoulder∠, shoulder·ω, elbow∠, elbow·ω, contact]', actions: '[τ_elbow]' },
+      'spinner-constant': { actor: '9 → 64 → 64 → 1', obs: '[y, sinθ, cosθ, vx, vy, ω, sinJ, cosJ, j·ω]', actions: '[τ_spin]' },
+      'spinner-max': { actor: '9 → 64 → 64 → 1', obs: '[y, sinθ, cosθ, vx, vy, ω, sinJ, cosJ, j·ω]', actions: '[τ_spin]' },
+      'red-light-green-light': { actor: '10 → 64 → 64 → 1', obs: '[y, sinθ, cosθ, vx, vy, ω, sinJ, cosJ, j·ω, light]', actions: '[τ_spin]' },
     }
     return descs[envType] || descs.cartpole
   }
@@ -405,8 +460,22 @@ export default function TrainMode() {
               </div>
             </div>
 
-            <div style={{ height: selectedTab === 'chart' ? 440 : 300 }}>
-              {selectedTab === 'sim' ? simContent : (
+            <div style={{ height: selectedTab === 'chart' ? 580 : 300, position: 'relative' }}>
+              {selectedTab === 'sim' ? (
+                <>
+                  {simContent}
+                  {hopperSnapshot && (
+                    <SceneHierarchy
+                      snapshot={hopperSnapshot}
+                      selectedId={sceneSelectedId}
+                      selectedType={sceneSelectedType}
+                      onSelect={handleSceneSelect}
+                      onPropertyChange={handleScenePropertyChange}
+                      editable={canEditScene}
+                    />
+                  )}
+                </>
+              ) : (
                 <TrainingCharts metrics={metrics} solvedThreshold={solvedThreshold} />
               )}
             </div>
@@ -542,6 +611,39 @@ export default function TrainMode() {
             </div>
           </div>
 
+          {/* Playback diagnostic (visible after Import & Play) */}
+          {playbackDiag && (
+            <div className="panel">
+              <div className="panel-header">
+                <span>◎ playback diagnostic</span>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(playbackDiag, null, 2))
+                    alert('Diagnostic copied to clipboard — paste it to Claude for analysis')
+                  }}
+                  style={{ padding: '3px 8px', fontSize: 9 }}
+                >
+                  copy to clipboard
+                </button>
+              </div>
+              <div style={{ padding: '8px 12px', fontSize: 10, fontFamily: '"DM Mono", monospace', color: 'rgba(255,255,255,0.5)' }}>
+                <div>{playbackDiag.envType} · {playbackDiag.obsSize}D obs · {playbackDiag.actionSize}D act · {playbackDiag.steps.length} steps captured</div>
+                <div style={{ marginTop: 4 }}>
+                  ep1 reward: {playbackDiag.steps.reduce((s, d) => s + d.reward, 0).toFixed(1)}
+                  {' · '}
+                  {playbackDiag.steps[playbackDiag.steps.length - 1]?.done ? 'terminated' : 'ongoing'}
+                </div>
+                <details style={{ marginTop: 6 }}>
+                  <summary style={{ cursor: 'pointer', color: 'rgba(255,255,255,0.35)' }}>preview (first 5 steps)</summary>
+                  <pre style={{ marginTop: 4, fontSize: 9, maxHeight: 200, overflow: 'auto', color: 'rgba(255,255,255,0.4)', whiteSpace: 'pre-wrap' }}>
+                    {JSON.stringify(playbackDiag.steps.slice(0, 5), null, 2)}
+                  </pre>
+                </details>
+              </div>
+            </div>
+          )}
+
           {/* Debug controls (visible when debug mode is active) */}
           {debugMode && isTerrainMode && customCharDef && (
             <div className="panel">
@@ -676,7 +778,7 @@ export default function TrainMode() {
                 </span>
               </div>
               <div style={{ padding: '14px 16px', overflowY: 'auto' }}>
-                <HyperParams onChange={setPpoConfig} disabled={isRunning} />
+                <HyperParams onChange={setPpoConfig} disabled={isRunning} overrides={ENV_CONFIGS[envType]?.ppoOverrides} />
               </div>
             </div>
           )}

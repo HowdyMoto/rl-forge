@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: MJCF Parser</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { parseMJCF } from '../src/formats/mjcf/parser.js'
+
+// ─── Test MJCF string (acrobot-damped) ──────────────────────────────────────
+
+const ACROBOT_MJCF = `<mujoco model="acrobot-damped">
+  <compiler angle="radian" />
+  <option gravity="0 -9.81 0" />
+  <default>
+    <geom friction="0.5" />
+    <joint damping="2.0" />
+  </default>
+  <custom>
+    <numeric name="gravityScale" data="1" />
+    <text name="forwardBody" data="link2" />
+    <numeric name="groundY" data="-10" />
+    <numeric name="groundFriction" data="0.5" />
+    <numeric name="groundRestitution" data="0.1" />
+    <text name="defaultReward" data='{"forwardVelWeight":0,"aliveBonusWeight":0,"ctrlCostWeight":0.001,"terminationPenalty":0,"tipHeightWeight":1,"anchorY":2,"healthyYMin":-100,"healthyAngleMax":100}' />
+  </custom>
+  <worldbody>
+    <geom name="ground" type="plane" pos="0 -10 0" size="50 1 1" friction="0.5 0.005 0.0001" rgba="0.3 0.3 0.3 1" />
+    <body name="torso" pos="0 2 0" rl-forge:fixed="true">
+      <geom name="torso" type="box" size="0.04 0.04 0.05" mass="1" friction="0" rl-forge:minY="-100" rl-forge:maxAngle="100" />
+      <body name="link1" pos="0.25 2 0" rl-forge:spawnAngle="1.5708">
+        <joint name="shoulder" type="hinge" axis="0 0 1" limited="true" range="-6.283185307179586 6.283185307179586" pos="0 0.25 0" damping="2.0" rl-forge:maxVelocity="15" rl-forge:anchorA="0 0" />
+        <geom name="link1" type="capsule" size="0.04" fromto="0 -0.21 0 0 0.21 0" mass="1" friction="0.3" />
+        <body name="link2" pos="0.5 1.75 0">
+          <joint name="elbow" type="hinge" axis="0 0 1" limited="true" range="-6.283185307179586 6.283185307179586" pos="0 0.25 0" damping="2.0" rl-forge:maxVelocity="15" rl-forge:anchorA="0 -0.25" />
+          <geom name="link2" type="capsule" size="0.04" fromto="0 -0.21 0 0 0.21 0" mass="1" friction="0.3" rl-forge:isFootBody="true" rl-forge:minY="-100" rl-forge:maxAngle="100" />
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="elbow_motor" joint="elbow" gear="10" ctrllimited="true" ctrlrange="-1 1" />
+  </actuator>
+</mujoco>`
+
+describe('MJCF Parser', () => {
+  it('parses correct number of bodies', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    assert.equal(def.bodies.length, 3, `Expected 3 bodies, got ${def.bodies.length}`)
+  })
+
+  it('parses body IDs correctly', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    const ids = def.bodies.map(b => b.id)
+    assert.true(ids.includes('torso'), 'Should have torso')
+    assert.true(ids.includes('link1'), 'Should have link1')
+    assert.true(ids.includes('link2'), 'Should have link2')
+  })
+
+  it('parses fixed body attribute', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    const torso = def.bodies.find(b => b.id === 'torso')
+    assert.true(torso.fixed === true, 'Torso should be fixed')
+  })
+
+  it('parses isFootBody attribute', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    const link2 = def.bodies.find(b => b.id === 'link2')
+    assert.true(link2.isFootBody === true, 'link2 should be isFootBody')
+  })
+
+  it('parses joint limits in radians', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    const shoulder = def.joints.find(j => j.id === 'shoulder')
+    assert.near(shoulder.lowerLimit, -2 * Math.PI, 0.01,
+      `Shoulder lower limit: ${shoulder.lowerLimit}`)
+    assert.near(shoulder.upperLimit, 2 * Math.PI, 0.01,
+      `Shoulder upper limit: ${shoulder.upperLimit}`)
+  })
+
+  it('parses actuator gear as maxTorque', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    // The actuator is on elbow with gear=10
+    const elbow = def.joints.find(j => j.id === 'elbow')
+    assert.equal(elbow.maxTorque, 10, `Elbow maxTorque should be 10, got ${elbow.maxTorque}`)
+
+    // Shoulder has no actuator → maxTorque should be 0
+    const shoulder = def.joints.find(j => j.id === 'shoulder')
+    assert.equal(shoulder.maxTorque, 0,
+      `Shoulder (no actuator) maxTorque should be 0, got ${shoulder.maxTorque}`)
+  })
+
+  it('parses joint damping (from attribute, not default)', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    const shoulder = def.joints.find(j => j.id === 'shoulder')
+    assert.equal(shoulder.damping, 2.0, `Shoulder damping: ${shoulder.damping}`)
+    const elbow = def.joints.find(j => j.id === 'elbow')
+    assert.equal(elbow.damping, 2.0, `Elbow damping: ${elbow.damping}`)
+  })
+
+  it('parses custom metadata (forwardBody, defaultReward)', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    assert.equal(def.forwardBody, 'link2', `forwardBody: ${def.forwardBody}`)
+
+    const reward = def.defaultReward
+    assert.equal(reward.tipHeightWeight, 1, `tipHeightWeight: ${reward.tipHeightWeight}`)
+    assert.equal(reward.anchorY, 2, `anchorY: ${reward.anchorY}`)
+    assert.equal(reward.ctrlCostWeight, 0.001, `ctrlCostWeight: ${reward.ctrlCostWeight}`)
+  })
+
+  it('parses rl-forge:minY and rl-forge:maxAngle', () => {
+    const def = parseMJCF(ACROBOT_MJCF)
+    const torso = def.bodies.find(b => b.id === 'torso')
+    assert.equal(torso.minY, -100, `torso minY: ${torso.minY}`)
+    assert.equal(torso.maxAngle, 100, `torso maxAngle: ${torso.maxAngle}`)
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

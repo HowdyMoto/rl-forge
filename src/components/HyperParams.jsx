@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { DEFAULT_PPO_CONFIG } from '../rl/ppo.js'
 import Tooltip from './Tooltip.jsx'
 
@@ -40,8 +40,20 @@ const PARAM_META = [
   },
 ]
 
-export default function HyperParams({ onChange, disabled }) {
-  const [params, setParams] = useState(DEFAULT_PPO_CONFIG)
+export default function HyperParams({ onChange, disabled, overrides }) {
+  const [params, setParams] = useState({ ...DEFAULT_PPO_CONFIG, ...overrides })
+
+  // When environment changes, apply its overrides on top of defaults
+  const [prevOverrides, setPrevOverrides] = useState(overrides)
+  if (overrides !== prevOverrides) {
+    setPrevOverrides(overrides)
+    setParams({ ...DEFAULT_PPO_CONFIG, ...overrides })
+  }
+
+  // Notify parent after render, not during
+  useEffect(() => {
+    onChange?.({ ...DEFAULT_PPO_CONFIG, ...overrides })
+  }, [overrides])
 
   const update = (key, value) => {
     const next = { ...params, [key]: value }

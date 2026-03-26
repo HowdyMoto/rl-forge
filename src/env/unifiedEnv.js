@@ -14,7 +14,7 @@
  * IMPORTANT: Rapier WASM must be initialized before constructing this class.
  */
 
-import RAPIER from '@dimforge/rapier2d'
+import * as RAPIER from '@dimforge/rapier2d-compat'
 import { computeDerivedFields, TERRAIN_OBSERVATION_SAMPLES } from '../formats/bodyDef.js'
 import { generateTerrain, sampleHeightfield } from './terrain.js'
 
@@ -186,8 +186,13 @@ export class UnifiedRapierEnv {
         this.footSensorHandles[bodyDef.id] = sensorCollider.handle
       }
 
-      // Skip collider for pure pivot bodies (e.g., prismatic anchor)
-      if (!bodyDef.noCollider) {
+      // For noCollider bodies: still create the collider for correct mass/inertia
+      // properties, but use collision groups to prevent physical interaction.
+      // This is more accurate than manually computing inertia.
+      if (bodyDef.noCollider && !bodyDef.fixed) {
+        colliderDesc.setCollisionGroups(0x00020002)  // group 2 only — won't collide with anything
+      }
+      if (!bodyDef.noCollider || !bodyDef.fixed) {
         this.world.createCollider(colliderDesc, rb)
       }
       this.bodies[bodyDef.id] = rb
@@ -311,17 +316,22 @@ export class UnifiedRapierEnv {
     this.stepCount = 0
     this._footContacts = {}
 
-    // Random perturbation
+    // Random perturbation — scale from charDef.resetNoise (default: standard locomotion values)
+    const noise = def.resetNoise ?? {}
+    const nPos   = noise.position ?? 0.1    // ± meters
+    const nAngle = noise.angle    ?? 0.3    // ± radians
+    const nVel   = noise.velocity ?? 0.5    // ± m/s
+    const nAngV  = noise.angvel   ?? 0.5    // ± rad/s
     for (const bodyDef of def.bodies) {
       if (bodyDef.fixed) continue
       const rb = this.bodies[bodyDef.id]
       rb.setTranslation({
-        x: (bodyDef.spawnX ?? 0) + (Math.random() - 0.5) * 0.1,
-        y: (bodyDef.spawnY ?? 1.0) + (Math.random() - 0.5) * 0.05,
+        x: (bodyDef.spawnX ?? 0) + (Math.random() - 0.5) * nPos,
+        y: (bodyDef.spawnY ?? 1.0) + (Math.random() - 0.5) * nPos * 0.5,
       }, true)
-      rb.setRotation((bodyDef.spawnAngle ?? 0) + (Math.random() - 0.5) * 0.3, true)
-      rb.setLinvel({ x: (Math.random() - 0.5) * 0.5, y: (Math.random() - 0.5) * 0.3 }, true)
-      rb.setAngvel((Math.random() - 0.5) * 0.5, true)
+      rb.setRotation((bodyDef.spawnAngle ?? 0) + (Math.random() - 0.5) * nAngle, true)
+      rb.setLinvel({ x: (Math.random() - 0.5) * nVel, y: (Math.random() - 0.5) * nVel * 0.6 }, true)
+      rb.setAngvel((Math.random() - 0.5) * nAngV, true)
     }
 
     // Initialize PD controller cache
@@ -332,6 +342,9 @@ export class UnifiedRapierEnv {
     const torso = this.bodies[this._forwardBody]
     this._prevTorsoX = torso ? torso.translation().x : 0
     this._maxTorsoX = this._prevTorsoX
+
+    // Custom reset hook (e.g., for initializing env-specific state)
+    if (def.onReset) def.onReset(this)
 
     return this._getObs()
   }
@@ -388,11 +401,16 @@ export class UnifiedRapierEnv {
     this._prevTorsoX = torsoPos.x
     this._maxTorsoX = Math.max(this._maxTorsoX, torsoPos.x)
 
+    // Custom per-step hook (e.g., for updating env-specific state like timers)
+    if (this.def.onStep) this.def.onStep(this)
+
     // Health check & termination
     const { healthy, done, timedOut } = this._checkTermination(torsoPos, torsoRot)
 
-    // Reward
-    const reward = this._computeReward(forwardVel, clampedActions, healthy, done, timedOut, torsoPos, torsoRot)
+    // Reward — use custom function if provided, otherwise default
+    const reward = this.def.customRewardFn
+      ? this.def.customRewardFn(this, clampedActions, healthy, done, timedOut)
+      : this._computeReward(forwardVel, clampedActions, healthy, done, timedOut, torsoPos, torsoRot)
 
     const obs = this._getObs()
 
@@ -412,11 +430,26 @@ export class UnifiedRapierEnv {
 
   _stepVelocity(actions) {
     const def = this.def
-    def.joints.forEach((jointDef, i) => {
-      const joint = this.joints[jointDef.id]
-      if ((jointDef.maxTorque ?? 0) <= 0) return
-      const targetVel = actions[i] * (jointDef.maxVelocity ?? 8.0)
-      joint.configureMotorVelocity(targetVel, jointDef.maxTorque)
+    let ai = 0  // action index — only incremented for actuated joints
+    def.joints.forEach((jointDef) => {
+      if ((jointDef.maxTorque ?? 0) <= 0) return  // passive joint, no action
+      const action = actions[ai++]
+
+      if (jointDef.type === 'prismatic') {
+        // Direct force control for prismatic joints (e.g., CartPole rail).
+        // action ∈ [-1, 1] maps to force ∈ [-maxTorque, +maxTorque].
+        // Applied via addForce once — Rapier persists it across substeps.
+        const body = this.bodies[jointDef.bodyB]
+        const axis = jointDef.axis || [1, 0]
+        const force = action * (jointDef.maxTorque ?? 10)
+        body.addForce({ x: force * axis[0], y: force * axis[1] }, true)
+      } else {
+        // Revolute joints: velocity motor (standard for locomotion)
+        const joint = this.joints[jointDef.id]
+        const targetVel = action * (jointDef.maxVelocity ?? 8.0)
+        joint.configureMotorVelocity(targetVel, jointDef.damping ?? 5.0)
+        joint.configureMotorMaxForce(jointDef.maxTorque ?? 300)
+      }
     })
 
     for (let i = 0; i < this.substeps; i++) {
@@ -541,6 +574,86 @@ export class UnifiedRapierEnv {
     return reward
   }
 
+  /**
+   * Returns a breakdown of each reward component for debugging/visualization.
+   * Same logic as _computeReward but returns named components instead of a scalar.
+   */
+  computeRewardBreakdown() {
+    // Use custom breakdown if provided
+    if (this.def.customRewardBreakdownFn) {
+      return this.def.customRewardBreakdownFn(this)
+    }
+
+    const r = this.def.defaultReward ?? {}
+    const torso = this.bodies[this._forwardBody]
+    if (!torso) return { components: [], total: 0 }
+
+    const torsoPos = torso.translation()
+    const torsoRot = torso.rotation()
+    const forwardVel = (torsoPos.x - this._prevTorsoX) / this.agentDt
+
+    const { healthy, done, timedOut } = this._checkTermination(torsoPos, torsoRot)
+
+    const components = []
+    let total = 0
+
+    if (healthy || timedOut) {
+      const fvr = (r.forwardVelWeight ?? 1.0) * forwardVel
+      if (r.forwardVelWeight) {
+        components.push({ label: 'Forward Vel', value: fvr, color: '#4ade80' })
+        total += fvr
+      }
+
+      const ab = (r.aliveBonusWeight ?? 1.0)
+      if (ab) {
+        components.push({ label: 'Alive Bonus', value: ab, color: '#4ade80' })
+        total += ab
+      }
+
+      // Tip height (acrobot)
+      if (r.tipHeightWeight) {
+        const tipH = (torsoPos.y - (r.anchorY ?? 0)) * r.tipHeightWeight
+        components.push({ label: 'Tip Height', value: tipH, color: tipH >= 0 ? '#4ade80' : '#f87171' })
+        total += tipH
+      }
+
+      // Angle penalty (cartpole)
+      if (r.anglePenaltyWeight !== undefined) {
+        const poleBody = this.def.bodies.find(b => b.id !== this._forwardBody && !b.fixed)
+        if (poleBody) {
+          const poleRb = this.bodies[poleBody.id]
+          const cartRb = this.bodies[this._forwardBody]
+          if (poleRb && cartRb) {
+            const poleAngle = poleRb.rotation() - cartRb.rotation()
+            const thetaMax = r.poleAngleLimit ?? (24 * Math.PI / 180)
+            const penalty = -r.anglePenaltyWeight * (poleAngle * poleAngle) / (thetaMax * thetaMax)
+            components.push({ label: 'Angle Penalty', value: penalty, color: '#f87171' })
+            total += penalty
+          }
+        }
+      }
+
+      // Position penalty (cartpole)
+      if (r.positionPenaltyWeight !== undefined) {
+        const posLimit = r.cartPositionLimit ?? 2.4
+        const penalty = -r.positionPenaltyWeight * (torsoPos.x * torsoPos.x) / (posLimit * posLimit)
+        components.push({ label: 'Position Penalty', value: penalty, color: '#f87171' })
+        total += penalty
+      }
+    }
+
+    // Termination
+    if (done && !timedOut) {
+      const tp = -(r.terminationPenalty ?? 0)
+      if (tp) {
+        components.push({ label: 'Termination', value: tp, color: '#f87171' })
+        total += tp
+      }
+    }
+
+    return { components, total, healthy, done }
+  }
+
   // ─── Observation ────────────────────────────────────────────────────────────
 
   _getObs() {
@@ -559,13 +672,11 @@ export class UnifiedRapierEnv {
       height = torsoPos.y - this._getGroundHeight(torsoPos.x)
     }
 
-    const obs = [
-      height,
-      torsoAngle,
-      torsoVel.x,
-      torsoVel.y,
-      torsoAngVel,
-    ]
+    const useSinCos = def.sinCosAngles ?? false
+
+    const obs = useSinCos
+      ? [height, Math.sin(torsoAngle), Math.cos(torsoAngle), torsoVel.x, torsoVel.y, torsoAngVel]
+      : [height, torsoAngle, torsoVel.x, torsoVel.y, torsoAngVel]
 
     // Joint angles and velocities
     for (const jointDef of def.joints) {
@@ -573,6 +684,7 @@ export class UnifiedRapierEnv {
       const bodyB = this.bodies[jointDef.bodyB]
       if (!bodyA || !bodyB) {
         obs.push(0, 0)
+        if (useSinCos && jointDef.type !== 'prismatic') obs.push(0) // sin/cos/vel = 3
         continue
       }
 
@@ -593,6 +705,12 @@ export class UnifiedRapierEnv {
         const axialVel = relVelX * axis[0] + relVelY * axis[1]
         obs.push(axialPos)
         obs.push(axialVel)
+      } else if (useSinCos) {
+        // Revolute with sin/cos encoding: [sin(θ), cos(θ), ω] — no wrapping discontinuity
+        const angle = bodyB.rotation() - bodyA.rotation()
+        obs.push(Math.sin(angle))
+        obs.push(Math.cos(angle))
+        obs.push(bodyB.angvel() - bodyA.angvel())
       } else {
         // Revolute: relative angle and angular velocity
         obs.push(bodyB.rotation() - bodyA.rotation())
@@ -605,6 +723,12 @@ export class UnifiedRapierEnv {
       if (bodyDef.isFootBody) {
         obs.push(this._footContacts[bodyDef.id] ? 1.0 : 0.0)
       }
+    }
+
+    // Extra observations from character definition (e.g., light state for RLGL)
+    if (def.extraObs) {
+      const extra = def.extraObs(this)
+      for (let i = 0; i < extra.length; i++) obs.push(extra[i])
     }
 
     // Terrain heightfield perception
@@ -644,14 +768,21 @@ export class UnifiedRapierEnv {
   // ─── Render Snapshot ────────────────────────────────────────────────────────
 
   getRenderSnapshot() {
+    // Cache a serializable copy of the def (strip functions for postMessage)
+    if (!this._serializableDef) {
+      this._serializableDef = JSON.parse(JSON.stringify(this.def, (k, v) => typeof v === 'function' ? undefined : v))
+    }
     const snapshot = {
-      _charDef: this.def,
+      _charDef: this._serializableDef,
     }
     for (const [id, rb] of Object.entries(this.bodies)) {
       snapshot[id] = {
         x: rb.translation().x,
         y: rb.translation().y,
         angle: rb.rotation(),
+        vx: rb.linvel().x,
+        vy: rb.linvel().y,
+        angvel: rb.angvel(),
       }
     }
     // Foot contacts with positions
@@ -756,6 +887,11 @@ export class UnifiedRapierEnv {
       isFootBody: b.isFootBody || false,
       shape: b.shape,
     }))
+
+    // Custom render state (e.g., light color for RLGL)
+    if (this.def.getRenderExtra) {
+      snapshot._extra = this.def.getRenderExtra(this)
+    }
 
     return snapshot
   }

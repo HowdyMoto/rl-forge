@@ -20,9 +20,9 @@
  *    rail_position, rail_velocity,                         (2 - prismatic joint)
  *    pole_angle, pole_angVel]                              (2 - revolute joint)
  *
- * Action (2D, but rail has maxTorque=10, pole has maxTorque=0):
- *   [rail_force, pole_torque(=0)]
- *   Only action[0] has effect — force on the cart.
+ * Action (1D — only actuated joints count):
+ *   [rail_force]
+ *   Pole hinge is passive (maxTorque=0), excluded from action space.
  */
 
 export const CARTPOLE = {
@@ -76,6 +76,7 @@ export const CARTPOLE = {
       mass: 0.1,
       friction: 0.0,
       restitution: 0.0,
+      noCollider: true, // no physical collision — constrained by hinge, terminates on angle
       spawnX: 0.0,
       spawnY: 0.725,   // cart top (0.225) + pole half-length (0.5)
       spawnAngle: 0.0,
@@ -116,9 +117,17 @@ export const CARTPOLE = {
 
   forwardBody: 'torso',
 
+  // Gentle reset noise matching classic CartPole (±0.05 uniform)
+  resetNoise: {
+    position: 0.05,   // ± meters
+    angle:    0.1,     // ± radians (~5.7°)
+    velocity: 0.1,     // ± m/s
+    angvel:   0.1,     // ± rad/s
+  },
+
   // These are now auto-computed by computeDerivedFields():
   // obsSize: 9 (5 base + 2 prismatic + 2 revolute)
-  // actionSize: 2 (rail force + pole torque, but pole maxTorque=0)
+  // actionSize: 1 (only rail — pole hinge is passive)
 
   defaultReward: {
     // CartPole reward: +1 for surviving, penalties for drifting
@@ -127,10 +136,10 @@ export const CARTPOLE = {
     ctrlCostWeight: 0.0,       // no control cost
     terminationPenalty: 1.0,   // -1 for falling
     // Custom termination conditions (checked by env)
-    cartPositionLimit: 2.4,    // terminate if |cart_x| > 2.4
+    cartPositionLimit: 1.8,    // terminate if |cart_x| > 1.8 (well inside joint limit of 2.4)
     poleAngleLimit: 24 * (Math.PI / 180),  // terminate if |pole_angle| > 24°
     // Reward shaping (optional)
     anglePenaltyWeight: 0.5,   // penalty for pole angle
-    positionPenaltyWeight: 0.1, // penalty for cart position
+    positionPenaltyWeight: 0.5, // penalty for cart position (strong centering signal)
   },
 }

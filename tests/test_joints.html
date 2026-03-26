@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Joint Configuration</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv, createTwoBodyEnv, createCartPoleEnv, HOPPER, CARTPOLE, stepN } from './helpers.js'
+
+describe('Joint Configuration', () => {
+  it('all joints exist with correct IDs', () => {
+    const env = createHopperEnv()
+    for (const jDef of HOPPER.joints) {
+      assert.true(jDef.id in env.joints, `Joint '${jDef.id}' should exist`)
+    }
+    env.dispose()
+  })
+
+  it('joint contacts are disabled between connected bodies', () => {
+    const env = createHopperEnv()
+    for (const jDef of HOPPER.joints) {
+      const joint = env.joints[jDef.id]
+      assert.false(joint.contactsEnabled(),
+        `Joint '${jDef.id}' should have contacts disabled`)
+    }
+    env.dispose()
+  })
+
+  it('joint anchors match character definition', () => {
+    const env = createHopperEnv()
+    for (const jDef of HOPPER.joints) {
+      const joint = env.joints[jDef.id]
+      const a1 = joint.anchor1()
+      const a2 = joint.anchor2()
+      assert.near(a1.x, jDef.anchorA[0], 0.001,
+        `${jDef.id} anchor1.x: got ${a1.x}, expected ${jDef.anchorA[0]}`)
+      assert.near(a1.y, jDef.anchorA[1], 0.001,
+        `${jDef.id} anchor1.y: got ${a1.y}, expected ${jDef.anchorA[1]}`)
+      assert.near(a2.x, jDef.anchorB[0], 0.001,
+        `${jDef.id} anchor2.x: got ${a2.x}, expected ${jDef.anchorB[0]}`)
+      assert.near(a2.y, jDef.anchorB[1], 0.001,
+        `${jDef.id} anchor2.y: got ${a2.y}, expected ${jDef.anchorB[1]}`)
+    }
+    env.dispose()
+  })
+
+  it('revolute joint limits are enforced', () => {
+    // Use a two-body env with tight limits
+    const env = createTwoBodyEnv({
+      lowerLimit: -0.5,
+      upperLimit: 0.5,
+      maxTorque: 50.0,
+      maxVelocity: 20.0,
+      damping: 0,
+    })
+
+    // Drive joint hard in positive direction for many steps
+    for (let i = 0; i < 100; i++) {
+      env.step([1.0])  // max positive action
+    }
+
+    const joint = env.joints['shoulder']
+    const bodyA = env.bodies['torso']
+    const bodyB = env.bodies['arm']
+    const angle = bodyB.rotation() - bodyA.rotation()
+
+    // Joint angle should not exceed upper limit (with small tolerance for solver)
+    assert.lessThanOrEqual(angle, 0.5 + 0.1,
+      `Joint angle ${angle.toFixed(3)} should not exceed upper limit 0.5`)
+
+    env.dispose()
+  })
+
+  it('prismatic joint limits are enforced (CartPole rail)', () => {
+    const env = createCartPoleEnv()
+
+    // CartPole cart is named 'torso' (so observation builder finds it)
+    // joint[0] is the rail (prismatic), joint[1] is the hinge
+    for (let i = 0; i < 200; i++) {
+      env.step([1.0, 0])  // max positive rail action
+    }
+
+    const cart = env.bodies['torso']
+    const x = cart.translation().x
+
+    // CartPole rail limit is ±2.4m
+    const railLimit = 2.4
+    assert.lessThanOrEqual(x, railLimit + 0.2,
+      `Cart position ${x.toFixed(3)} should not exceed rail limit ${railLimit}`)
+
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

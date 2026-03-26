@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: BodyDef Validation & Normalization</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { validateBodyDef, normalizeBodyDef, computeDerivedFields } from '../src/formats/bodyDef.js'
+import { HOPPER } from '../src/env/characters/hopper.js'
+import { CARTPOLE } from '../src/env/characters/cartpole.js'
+
+// ─── validateBodyDef ────────────────────────────────────────────────────────
+
+describe('validateBodyDef', () => {
+  it('accepts a valid Hopper definition', () => {
+    const { valid, errors } = validateBodyDef(HOPPER)
+    assert.true(valid, `Hopper should be valid, errors: ${errors.join(', ')}`)
+  })
+
+  it('accepts a valid CartPole definition', () => {
+    const { valid, errors } = validateBodyDef(CARTPOLE)
+    assert.true(valid, `CartPole should be valid, errors: ${errors.join(', ')}`)
+  })
+
+  it('rejects missing name', () => {
+    const def = { bodies: [{ id: 'a', shape: 'box', w: 1, h: 1, mass: 1, friction: 0.3, restitution: 0, spawnX: 0, spawnY: 0 }], joints: [] }
+    const { valid } = validateBodyDef(def)
+    assert.false(valid, 'Should reject def without name')
+  })
+
+  it('rejects duplicate body IDs', () => {
+    const def = {
+      name: 'test',
+      bodies: [
+        { id: 'a', shape: 'box', w: 1, h: 1, mass: 1, friction: 0.3, restitution: 0, spawnX: 0, spawnY: 0 },
+        { id: 'a', shape: 'box', w: 1, h: 1, mass: 1, friction: 0.3, restitution: 0, spawnX: 0, spawnY: 0 },
+      ],
+      joints: [],
+    }
+    const { valid, errors } = validateBodyDef(def)
+    assert.false(valid, 'Should reject duplicate IDs')
+    assert.true(errors.some(e => e.includes('duplicate')), 'Error should mention duplicate')
+  })
+
+  it('rejects joint referencing unknown body', () => {
+    const def = {
+      name: 'test',
+      bodies: [
+        { id: 'a', shape: 'box', w: 1, h: 1, mass: 1, friction: 0.3, restitution: 0, spawnX: 0, spawnY: 0 },
+      ],
+      joints: [
+        { id: 'j1', bodyA: 'a', bodyB: 'nonexistent', anchorA: [0, 0], anchorB: [0, 0], lowerLimit: -1, upperLimit: 1, maxTorque: 10 },
+      ],
+    }
+    const { valid, errors } = validateBodyDef(def)
+    assert.false(valid, 'Should reject unknown body reference')
+    assert.true(errors.some(e => e.includes('nonexistent')), 'Error should mention nonexistent body')
+  })
+
+  it('rejects lowerLimit > upperLimit', () => {
+    const def = {
+      name: 'test',
+      bodies: [
+        { id: 'a', shape: 'box', w: 1, h: 1, mass: 1, friction: 0.3, restitution: 0, spawnX: 0, spawnY: 0 },
+        { id: 'b', shape: 'box', w: 1, h: 1, mass: 1, friction: 0.3, restitution: 0, spawnX: 0, spawnY: 1 },
+      ],
+      joints: [
+        { id: 'j1', bodyA: 'a', bodyB: 'b', anchorA: [0, 0], anchorB: [0, 0], lowerLimit: 2, upperLimit: -2, maxTorque: 10 },
+      ],
+    }
+    const { valid } = validateBodyDef(def)
+    assert.false(valid, 'Should reject inverted limits')
+  })
+})
+
+// ─── normalizeBodyDef ───────────────────────────────────────────────────────
+
+describe('normalizeBodyDef', () => {
+  it('fills default friction and restitution for bodies', () => {
+    const def = {
+      name: 'test',
+      bodies: [{ id: 'a', shape: 'box', w: 1, h: 1 }],
+      joints: [],
+    }
+    const norm = normalizeBodyDef(def)
+    assert.equal(norm.bodies[0].friction, 0.3, 'Default friction should be 0.3')
+    assert.equal(norm.bodies[0].restitution, 0.0, 'Default restitution should be 0.0')
+  })
+
+  it('fills default mass', () => {
+    const def = { name: 'test', bodies: [{ id: 'a', shape: 'box', w: 1, h: 1 }], joints: [] }
+    const norm = normalizeBodyDef(def)
+    assert.equal(norm.bodies[0].mass, 1.0, 'Default mass should be 1.0')
+  })
+
+  it('fills default joint damping and maxTorque', () => {
+    const def = {
+      name: 'test',
+      bodies: [
+        { id: 'a', shape: 'box', w: 1, h: 1 },
+        { id: 'b', shape: 'box', w: 1, h: 1 },
+      ],
+      joints: [{ id: 'j', bodyA: 'a', bodyB: 'b' }],
+    }
+    const norm = normalizeBodyDef(def)
+    assert.equal(norm.joints[0].damping, 5.0, 'Default damping should be 5.0')
+    assert.equal(norm.joints[0].maxTorque, 40.0, 'Default maxTorque should be 40.0')
+    assert.equal(norm.joints[0].maxVelocity, 8.0, 'Default maxVelocity should be 8.0')
+  })
+
+  it('fills default ground properties', () => {
+    const def = { name: 'test', bodies: [], joints: [] }
+    const norm = normalizeBodyDef(def)
+    assert.equal(norm.ground.y, 0.0)
+    assert.equal(norm.ground.friction, 0.8)
+    assert.equal(norm.ground.restitution, 0.1)
+  })
+
+  it('preserves explicit values', () => {
+    const def = {
+      name: 'test',
+      bodies: [{ id: 'a', shape: 'box', w: 1, h: 1, mass: 5.0, friction: 0.9, restitution: 0.5 }],
+      joints: [],
+    }
+    const norm = normalizeBodyDef(def)
+    assert.equal(norm.bodies[0].mass, 5.0)
+    assert.equal(norm.bodies[0].friction, 0.9)
+    assert.equal(norm.bodies[0].restitution, 0.5)
+  })
+})
+
+// ─── computeDerivedFields ───────────────────────────────────────────────────
+
+describe('computeDerivedFields', () => {
+  it('computes correct obsSize and actionSize for Hopper', () => {
+    const d = computeDerivedFields(HOPPER)
+    // 5 base + 2*2 joints + 1 foot = 10
+    assert.equal(d.obsSize, 10, 'Hopper obsSize should be 10')
+    assert.equal(d.actionSize, 2, 'Hopper actionSize should be 2')
+    assert.equal(d.numJoints, 2)
+    assert.equal(d.numFootBodies, 1)
+  })
+
+  it('computes correct obsSize and actionSize for CartPole', () => {
+    const d = computeDerivedFields(CARTPOLE)
+    // 5 base + 2*2 joints + 0 foot = 9
+    assert.equal(d.obsSize, 9, 'CartPole obsSize should be 9')
+    assert.equal(d.actionSize, 1, 'CartPole has 1 actuated joint (rail)')
+  })
+
+  it('adds terrain samples when terrain=true', () => {
+    const d = computeDerivedFields(HOPPER, { terrain: true })
+    assert.equal(d.obsSize, 10 + 40, 'Terrain adds 40 obs')
+  })
+
+  it('finds forwardBody from def or falls back to torso', () => {
+    const d1 = computeDerivedFields(HOPPER)
+    assert.equal(d1.forwardBody, 'torso')
+
+    const custom = { bodies: [{ id: 'tip' }], joints: [], forwardBody: 'tip' }
+    const d2 = computeDerivedFields(custom)
+    assert.equal(d2.forwardBody, 'tip')
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

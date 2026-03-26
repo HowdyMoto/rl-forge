@@ -64,6 +64,11 @@ export class VecEnv {
     return this.envs[0].getRenderSnapshot()
   }
 
+  /** Reward breakdown from env[0] for visualization (not used in training) */
+  getRewardBreakdown() {
+    return this.envs[0].computeRewardBreakdown?.() ?? null
+  }
+
   get observationSize() { return this.obsSize }
 
   dispose() {

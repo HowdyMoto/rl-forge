@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Forward Velocity</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv } from './helpers.js'
+
+describe('Forward Velocity', () => {
+  it('calculates velocity from position change / agentDt', () => {
+    const env = createHopperEnv()
+    const torso = env.bodies['torso']
+
+    // Record x before step
+    const x0 = torso.translation().x
+
+    // Apply horizontal impulse to create movement
+    torso.applyImpulse({ x: 3.0, y: 0 }, true)
+
+    const result = env.step([0, 0])
+    const x1 = torso.translation().x
+
+    const expectedVel = (x1 - x0) / env.agentDt
+
+    assert.near(result.info.forwardVel, expectedVel, 0.5,
+      `Forward vel: got ${result.info.forwardVel.toFixed(4)}, expected ~${expectedVel.toFixed(4)}`)
+    env.dispose()
+  })
+
+  it('stationary body has near-zero forward velocity', () => {
+    const env = createHopperEnv()
+    const torso = env.bodies['torso']
+
+    // Zero out velocities
+    torso.setLinvel({ x: 0, y: 0 }, true)
+
+    const result = env.step([0, 0])
+
+    // Forward velocity should be near zero (gravity causes slight movement)
+    assert.near(result.info.forwardVel, 0, 1.0,
+      `Stationary forward vel should be ~0, got ${result.info.forwardVel.toFixed(4)}`)
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

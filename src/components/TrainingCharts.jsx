@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from 'recharts'
 import InfoTooltip from './Tooltip.jsx'
+import RewardBreakdownChart from './RewardBreakdownChart.jsx'
 
 const CHART_DEFS = [
   {
@@ -116,11 +117,14 @@ export default function TrainingCharts({ metrics, solvedThreshold }) {
     entropy: m.entropy,
   })), [metrics])
 
+  // Check if any metrics have reward breakdown data
+  const hasBreakdown = metrics.some(m => m.rewardBreakdown && Object.keys(m.rewardBreakdown).length > 0)
+
   return (
     <div style={{
       display: 'grid',
       gridTemplateColumns: '1fr 1fr',
-      gridTemplateRows: '1fr 1fr',
+      gridTemplateRows: hasBreakdown ? '1fr 1fr 1fr' : '1fr 1fr',
       gap: 1,
       height: '100%',
       background: 'rgba(255,255,255,0.04)',
@@ -148,6 +152,11 @@ export default function TrainingCharts({ metrics, solvedThreshold }) {
           </div>
         </div>
       ))}
+      {hasBreakdown && (
+        <div style={{ background: '#07070f', position: 'relative', minHeight: 0, gridColumn: '1 / -1' }}>
+          <RewardBreakdownChart metrics={metrics} />
+        </div>
+      )}
     </div>
   )
 }

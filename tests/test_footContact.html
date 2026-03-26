@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Foot Contact Sensor</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv, HOPPER } from './helpers.js'
+
+describe('Foot Contact Sensor', () => {
+  it('detects ground contact after settling', () => {
+    const env = createHopperEnv()
+
+    // Let the hopper fall and settle — step until done or 300 steps
+    // The hopper will topple, but the shin foot should contact ground at some point
+    let contactDetected = false
+    for (let i = 0; i < 300; i++) {
+      const result = env.step([0, 0])
+      if (env._footContacts['shin']) {
+        contactDetected = true
+        break
+      }
+      if (result.done) break
+    }
+
+    assert.true(contactDetected,
+      `Shin should make ground contact at some point during fall/settling`)
+    env.dispose()
+  })
+
+  it('no contact when body is in the air', () => {
+    const env = createHopperEnv()
+
+    // On the first step, the hopper is still in the air (just spawned at y=1.35)
+    // The ground is at y=0 and shin spawns at y=0.47
+    // After one step the shin may already be near ground, so let's check right after reset
+    // Actually, at spawn the shin is at y=0.47 which may already be on the ground.
+    // Let's push it up instead.
+    const torso = env.bodies['torso']
+    const thigh = env.bodies['thigh']
+    const shin = env.bodies['shin']
+
+    // Push everything way up
+    torso.setTranslation({ x: 0, y: 5.0 }, true)
+    thigh.setTranslation({ x: 0, y: 4.5 }, true)
+    shin.setTranslation({ x: 0, y: 4.0 }, true)
+    torso.setLinvel({ x: 0, y: 0 }, true)
+    thigh.setLinvel({ x: 0, y: 0 }, true)
+    shin.setLinvel({ x: 0, y: 0 }, true)
+
+    // Step once to update contact state
+    env.step([0, 0])
+
+    const shinContact = env._footContacts['shin']
+    assert.false(shinContact === true,
+      `Shin should NOT be in contact when high in air, got ${shinContact}`)
+    env.dispose()
+  })
+
+  it('only isFootBody bodies have sensors', () => {
+    const env = createHopperEnv()
+
+    const footBodies = HOPPER.bodies.filter(b => b.isFootBody)
+    const nonFootBodies = HOPPER.bodies.filter(b => !b.isFootBody)
+
+    // Foot bodies should have sensor handles
+    for (const b of footBodies) {
+      assert.true(b.id in env.footSensorHandles,
+        `Foot body '${b.id}' should have a sensor handle`)
+    }
+
+    // Non-foot bodies should NOT have sensor handles
+    for (const b of nonFootBodies) {
+      assert.false(b.id in env.footSensorHandles,
+        `Non-foot body '${b.id}' should NOT have a sensor handle`)
+    }
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

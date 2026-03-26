@@ -124,11 +124,11 @@ export function validateBodyDef(def) {
  *
  * For RapierEnv (velocity control):
  *   obsSize = 5 (torso state) + 2 * numJoints + numFootBodies
- *   actionSize = numJoints
+ *   actionSize = numActuatedJoints (joints with maxTorque > 0)
  *
  * For TerrainEnv (PD control):
  *   obsSize = 5 + 2 * numJoints + numFootBodies + TERRAIN_OBSERVATION_SAMPLES
- *   actionSize = numJoints
+ *   actionSize = numActuatedJoints
  *
  * @param {object} def - BodyDef object
  * @param {object} options
@@ -140,9 +140,18 @@ export function computeDerivedFields(def, options = {}) {
   const numFootBodies = def.bodies?.filter(b => b.isFootBody).length ?? 0
   const terrain = options.terrain ?? false
 
-  const baseObsSize = 5 + 2 * numJoints + numFootBodies
+  const extraObsSize = def.extraObsSize ?? 0
+  // sinCosAngles: torso angle becomes [sin,cos] (+1), each revolute joint becomes [sin,cos,ω] (+1 each)
+  const useSinCos = def.sinCosAngles ?? false
+  const numRevolute = def.joints?.filter(j => j.type !== 'prismatic').length ?? 0
+  const sinCosExtra = useSinCos ? (1 + numRevolute) : 0
+  const baseObsSize = 5 + 2 * numJoints + numFootBodies + extraObsSize + sinCosExtra
   const obsSize = terrain ? baseObsSize + TERRAIN_OBSERVATION_SAMPLES : baseObsSize
-  const actionSize = numJoints
+
+  // Only count actuated joints (maxTorque > 0) as actions.
+  // Passive joints (e.g., CartPole hinge) still contribute observations but no action.
+  const numActuated = def.joints?.filter(j => (j.maxTorque ?? 0) > 0).length ?? 0
+  const actionSize = numActuated
 
   // forwardBody: first body named 'torso', or the first body
   const forwardBody = def.forwardBody

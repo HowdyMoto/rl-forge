@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Gravity</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createMinimalEnv, createEnv } from './helpers.js'
+
+describe('Gravity', () => {
+  it('body falls under gravity (y decreases)', () => {
+    const env = createMinimalEnv()
+    const torso = env.bodies['torso']
+    const y0 = torso.translation().y
+
+    // Step with no actions (actionSize=0, pass empty array)
+    env.step([])
+    const y1 = torso.translation().y
+
+    assert.lessThan(y1, y0, `Body should fall: y went from ${y0} to ${y1}`)
+    env.dispose()
+  })
+
+  it('free-fall acceleration matches g', () => {
+    const env = createMinimalEnv()
+    const torso = env.bodies['torso']
+
+    // Read initial vy (should be near 0 after reset, within perturbation)
+    const vy0 = torso.linvel().y
+
+    // Step once (1 policy step = substeps physics steps)
+    env.step([])
+    const vy1 = torso.linvel().y
+
+    // Expected: vy changes by g * agentDt = -9.81 * (substeps / physicsHz)
+    const expectedDvy = -9.81 * env.agentDt
+    const actualDvy = vy1 - vy0
+
+    // Tolerance accounts for damping + perturbation. Linear damping on a
+    // minimal body with damping=0 (no joints) should be 0, so this should
+    // be fairly close.
+    assert.near(actualDvy, expectedDvy, 0.5,
+      `Δvy=${actualDvy.toFixed(4)} should be ~${expectedDvy.toFixed(4)}`)
+    env.dispose()
+  })
+
+  it('zero gravity: body does not fall', () => {
+    const env = createMinimalEnv()
+    // Recreate with zero gravity
+    env.dispose()
+
+    const def = {
+      name: 'zero-g',
+      gravityScale: 1.0,
+      ground: { y: -10, friction: 0.5, restitution: 0.1 },
+      bodies: [{
+        id: 'torso', shape: 'box', w: 0.2, h: 0.2, mass: 1.0,
+        friction: 0.3, restitution: 0, spawnX: 0, spawnY: 2.0, spawnAngle: 0,
+      }],
+      joints: [],
+      forwardBody: 'torso',
+      defaultReward: { forwardVelWeight: 0, aliveBonusWeight: 0, ctrlCostWeight: 0, terminationPenalty: 0, healthyYMin: -100, healthyAngleMax: 100 },
+    }
+    const env2 = createEnv(def, { gravity: 0 })
+    const torso = env2.bodies['torso']
+
+    // Zero out any reset perturbation velocity
+    torso.setLinvel({ x: 0, y: 0 }, true)
+    torso.setAngvel(0, true)
+
+    const y0 = torso.translation().y
+    for (let i = 0; i < 30; i++) env2.step([])
+    const y1 = torso.translation().y
+
+    assert.near(y1, y0, 0.01, `Body should not fall with zero gravity: y0=${y0}, y1=${y1}`)
+    env2.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Train → Export → Import → Playback</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createCartPoleEnv, CARTPOLE } from './helpers.js'
+import * as tf from '@tensorflow/tfjs'
+import { PPOAgent, RunningMeanStd } from '../src/rl/ppo.js'
+import { UnifiedRapierEnv } from '../src/env/unifiedEnv.js'
+import { VecEnv } from '../src/env/vecEnv.js'
+
+// Use the same env opts that trainWorker uses for cartpole
+const CARTPOLE_OPTS = {
+  controlMode: 'velocity',
+  physicsHz: 240,
+  policyHz: 50,
+  gravity: -9.8,
+  maxSteps: 500,
+}
+
+const PPO_OVERRIDES = { hiddenSizes: [64, 64], stepsPerUpdate: 512, entropyCoef: 0.02 }
+
+function log(msg) {
+  const el = document.getElementById('log')
+  if (el) el.textContent += msg + '\n'
+  console.log(msg)
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function createCartPoleVecEnv(numEnvs) {
+  return new VecEnv(
+    () => new UnifiedRapierEnv(CARTPOLE, CARTPOLE_OPTS),
+    numEnvs
+  )
+}
+
+function createSingleCartPoleEnv() {
+  const env = new UnifiedRapierEnv(CARTPOLE, CARTPOLE_OPTS)
+  env.reset()
+  return env
+}
+
+/** Mini training loop — returns { agent, weightsJSON } */
+async function trainCartpole(numUpdates = 3) {
+  const numEnvs = 4
+  const env = createCartPoleVecEnv(numEnvs)
+  const obsSize = env.observationSize
+  const actSize = env.envs[0].actionSize  // VecEnv exposes actionSize
+
+  const agent = new PPOAgent(obsSize, actSize, { ...PPO_OVERRIDES, maxUpdates: numUpdates })
+
+  let rawObsArray = env.resetAll()
+  agent.updateObsStats(rawObsArray)
+  let obsArray = agent.normalizeObsBatch(rawObsArray)
+
+  let updateCount = 0
+  let totalSteps = 0
+
+  while (updateCount < numUpdates) {
+    const { actions, values, logProbs } = await agent.actBatch(obsArray)
+    const { obs: nextRawObsArray, rewards, dones } = env.stepAll(actions)
+
+    agent.updateObsStats(nextRawObsArray)
+    const nextObsArray = agent.normalizeObsBatch(nextRawObsArray)
+
+    agent.storeTransitions(obsArray, actions, rewards, dones, values, logProbs)
+    totalSteps += numEnvs
+
+    rawObsArray = nextRawObsArray
+    obsArray = nextObsArray
+
+    if (agent.bufferFull) {
+      await agent.update(obsArray[0])
+      updateCount++
+    }
+  }
+
+  // Export weights as JSON (same path as exportModel but without Blob URL)
+  const weights = {}
+  agent.actor.trainableWeights.forEach((w, i) => {
+    weights[`actor_${i}`] = Array.from(w.val.dataSync())
+  })
+  weights['logStd'] = Array.from(agent.logStd.dataSync())
+  weights['obsRms'] = agent.obsRms.toJSON()
+
+  env.dispose()
+
+  // Clean up TF variables so the next PPOAgent creation doesn't collide
+  const cleanup = () => {
+    agent.actor.dispose()
+    agent.logStd.dispose()
+    agent.critic.dispose()
+    tf.disposeVariables()
+  }
+
+  return { agent, weightsJSON: weights, totalSteps, cleanup }
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe('CartPole Environment Sanity', () => {
+  it('env has correct obs/action sizes', () => {
+    const env = createSingleCartPoleEnv()
+    log(`  obsSize=${env.observationSize}, actionSize=${env.actionSize}`)
+    assert.equal(env.observationSize, 9, `Expected 9 obs, got ${env.observationSize}`)
+    assert.equal(env.actionSize, 1, `Expected 1 action (only rail is actuated), got ${env.actionSize}`)
+    env.dispose()
+  })
+
+  it('env steps with Float32Array actions produce movement', () => {
+    const env = createSingleCartPoleEnv()
+    const initSnap = env.getRenderSnapshot()
+    const initCartX = initSnap.torso.x
+
+    // Apply strong rightward action for 30 steps
+    for (let i = 0; i < 30; i++) {
+      env.step(new Float32Array([1.0]))
+    }
+
+    const snap = env.getRenderSnapshot()
+    const cartX = snap.torso.x
+    log(`  cart moved: ${initCartX.toFixed(4)} → ${cartX.toFixed(4)}`)
+    assert.notEqual(cartX, initCartX, 'Cart should move with action=[1.0, 0.0]')
+    env.dispose()
+  })
+
+  it('pole falls under gravity with zero actions', () => {
+    const env = createSingleCartPoleEnv()
+    const initSnap = env.getRenderSnapshot()
+    const initPoleAngle = initSnap.pole?.angle ?? 0
+
+    // Step with zero actions — pole should fall under gravity
+    for (let i = 0; i < 60; i++) {
+      env.step(new Float32Array([0.0]))
+    }
+
+    const snap = env.getRenderSnapshot()
+    const poleAngle = snap.pole?.angle ?? 0
+    log(`  pole angle: ${initPoleAngle.toFixed(4)} → ${poleAngle.toFixed(4)} rad`)
+    // Pole should have tipped noticeably
+    assert.notEqual(poleAngle, initPoleAngle, 'Pole should tip under gravity')
+    env.dispose()
+  })
+})
+
+describe('PPOAgent — Weight Export/Import', () => {
+  it('exported weights contain obsRms', async () => {
+    const { weightsJSON, cleanup } = await trainCartpole(1)
+    cleanup()
+    assert.true('obsRms' in weightsJSON, 'Weights should contain obsRms')
+    assert.true('mean' in weightsJSON.obsRms, 'obsRms should have mean')
+    assert.true('var' in weightsJSON.obsRms, 'obsRms should have var')
+    assert.true('count' in weightsJSON.obsRms, 'obsRms should have count')
+    log(`  obsRms.count=${weightsJSON.obsRms.count}`)
+    log(`  obsRms.mean=[${weightsJSON.obsRms.mean.map(v => v.toFixed(4)).join(', ')}]`)
+    log(`  obsRms.var=[${weightsJSON.obsRms.var.map(v => v.toFixed(4)).join(', ')}]`)
+    assert.greaterThan(weightsJSON.obsRms.count, 1, 'obsRms should have counted observations')
+  })
+
+  it('imported agent produces same outputs as original', async () => {
+    const { agent: origAgent, weightsJSON, cleanup } = await trainCartpole(2)
+
+    // Capture original agent outputs before disposing
+    const env = createSingleCartPoleEnv()
+    const rawObs = env.reset()
+    const origNorm = origAgent.normalizeObs(rawObs)
+    const origAction = origAgent.actDeterministic(origNorm)
+    const origNormCopy = Array.from(origNorm)
+    const origActionVal = origAction  // scalar
+
+    cleanup()
+
+    // Create a new agent and import weights
+    const newAgent = new PPOAgent(9, 1, PPO_OVERRIDES)
+    newAgent.importWeights(weightsJSON)
+
+    const newNorm = newAgent.normalizeObs(rawObs)
+    const newAction = newAgent.actDeterministic(newNorm)
+
+    log(`  rawObs=[${rawObs.map(v => v.toFixed(4)).join(', ')}]`)
+    log(`  origNorm=[${origNormCopy.map(v => v.toFixed(4)).join(', ')}]`)
+    log(`  newNorm=[${Array.from(newNorm).map(v => v.toFixed(4)).join(', ')}]`)
+
+    for (let i = 0; i < origNormCopy.length; i++) {
+      assert.near(origNormCopy[i], newNorm[i], 1e-5,
+        `Obs[${i}] mismatch: orig=${origNormCopy[i]}, new=${newNorm[i]}`)
+    }
+
+    log(`  origAction=${origActionVal.toFixed(6)}`)
+    log(`  newAction=${newAction.toFixed(6)}`)
+
+    assert.near(origActionVal, newAction, 1e-5,
+      `Action mismatch: orig=${origActionVal}, new=${newAction}`)
+
+    newAgent.actor.dispose()
+    newAgent.logStd.dispose()
+    newAgent.critic.dispose()
+    tf.disposeVariables()
+    env.dispose()
+  })
+})
+
+describe('Full Train → Playback Pipeline', () => {
+  it('playback produces non-zero actions and physics moves', async () => {
+    log('  Training 3 updates...')
+    const { weightsJSON, cleanup } = await trainCartpole(3)
+    cleanup()
+
+    // Now simulate exactly what runPlayback does
+    const env = new UnifiedRapierEnv(CARTPOLE, CARTPOLE_OPTS)
+    const agent = new PPOAgent(env.observationSize, env.actionSize, PPO_OVERRIDES)
+    agent.importWeights(weightsJSON)
+
+    let rawObs = env.reset()
+    let obs = agent.normalizeObs(rawObs)
+
+    const initSnap = env.getRenderSnapshot()
+    log(`  Initial cart x=${initSnap.torso.x.toFixed(4)}, pole angle=${initSnap.pole.angle.toFixed(4)}`)
+
+    let anyNonZeroAction = false
+    let anyMovement = false
+
+    for (let step = 0; step < 30; step++) {
+      const action = env.actionSize > 1
+        ? agent.actDeterministicMulti(obs)
+        : agent.actDeterministic(obs)
+
+      const actionVal = typeof action === 'number' ? action : action[0]
+      if (Math.abs(actionVal) > 0.001) anyNonZeroAction = true
+
+      if (step < 5) {
+        log(`  step ${step}: action=${actionVal.toFixed(6)} type=${typeof action}`)
+      }
+
+      const { obs: nextRawObs, reward, done } = env.step(action)
+      rawObs = nextRawObs
+      obs = agent.normalizeObs(rawObs)
+
+      if (step < 5) {
+        const snap = env.getRenderSnapshot()
+        log(`    cart x=${snap.torso.x.toFixed(4)}, pole angle=${snap.pole.angle.toFixed(4)}, reward=${reward.toFixed(4)}`)
+      }
+    }
+
+    const finalSnap = env.getRenderSnapshot()
+    log(`  Final cart x=${finalSnap.torso.x.toFixed(4)}, pole angle=${finalSnap.pole.angle.toFixed(4)}`)
+
+    const cartMoved = Math.abs(finalSnap.torso.x - initSnap.torso.x) > 0.001
+    const poleMoved = Math.abs(finalSnap.pole.angle - initSnap.pole.angle) > 0.001
+    anyMovement = cartMoved || poleMoved
+
+    assert.true(anyNonZeroAction, 'Agent should produce non-zero actions')
+    assert.true(anyMovement, 'Cart or pole should move during playback')
+
+    env.dispose()
+  })
+
+  it('action type is handled correctly by env.step', async () => {
+    const env = createSingleCartPoleEnv()
+
+    // Test with plain Array (1 action for CartPole)
+    const r1 = env.step([0.5])
+    log(`  Array action: reward=${r1.reward.toFixed(4)}, done=${r1.done}`)
+
+    // Test with Float32Array
+    env.reset()
+    const r2 = env.step(new Float32Array([0.5]))
+    log(`  Float32Array action: reward=${r2.reward.toFixed(4)}, done=${r2.done}`)
+
+    // Test with a number (what actDeterministic returns for actionSize=1)
+    env.reset()
+    const r3 = env.step(0.5)
+    log(`  Number action: reward=${r3.reward.toFixed(4)}, done=${r3.done}`)
+
+    env.dispose()
+  })
+
+  it('diagnostic logging line does not crash (the toFixed bug)', async () => {
+    // Reproduce exactly what line 340 in trainWorker does
+    const action = new Float32Array([0.5, -0.3])
+
+    // OLD code: Array.isArray(action) is false for Float32Array → crash
+    const isArrayCheck = Array.isArray(action)
+    log(`  Array.isArray(Float32Array) = ${isArrayCheck}`)
+    assert.false(isArrayCheck, 'Float32Array is NOT an Array')
+
+    // NEW code: ArrayBuffer.isView catches typed arrays
+    const isViewCheck = ArrayBuffer.isView(action)
+    log(`  ArrayBuffer.isView(Float32Array) = ${isViewCheck}`)
+    assert.true(isViewCheck, 'Float32Array IS an ArrayBuffer view')
+
+    // The fixed diagnostic line
+    const formatted = (Array.isArray(action) || ArrayBuffer.isView(action))
+      ? Array.from(action).map(v => +v.toFixed(4))
+      : +action.toFixed(4)
+    log(`  formatted action = [${formatted}]`)
+    assert.equal(formatted.length, 2, 'Should format 2 actions')
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

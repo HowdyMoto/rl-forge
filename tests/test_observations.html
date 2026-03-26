@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Observations</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv, createCartPoleEnv, HOPPER, CARTPOLE } from './helpers.js'
+import { computeDerivedFields } from '../src/formats/bodyDef.js'
+
+describe('Observation Vector', () => {
+  it('obs length matches computeDerivedFields for Hopper', () => {
+    const env = createHopperEnv()
+    const result = env.step([0, 0])
+    const expected = computeDerivedFields(HOPPER).obsSize
+    assert.equal(result.obs.length, expected,
+      `Hopper obs length: got ${result.obs.length}, expected ${expected}`)
+    env.dispose()
+  })
+
+  it('obs length matches computeDerivedFields for CartPole', () => {
+    const env = createCartPoleEnv()
+    const result = env.step([0, 0])
+    const expected = computeDerivedFields(CARTPOLE).obsSize
+    assert.equal(result.obs.length, expected,
+      `CartPole obs length: got ${result.obs.length}, expected ${expected}`)
+    env.dispose()
+  })
+
+  it('obs[0] = torso height (y position)', () => {
+    const env = createHopperEnv()
+    const result = env.step([0, 0])
+    const torso = env.bodies['torso']
+    const expectedY = torso.translation().y
+    assert.near(result.obs[0], expectedY, 0.01,
+      `obs[0] height: got ${result.obs[0]}, expected ${expectedY}`)
+    env.dispose()
+  })
+
+  it('obs[1] = torso angle (rotation)', () => {
+    const env = createHopperEnv()
+    const result = env.step([0, 0])
+    const torso = env.bodies['torso']
+    const expectedAngle = torso.rotation()
+    assert.near(result.obs[1], expectedAngle, 0.01,
+      `obs[1] angle: got ${result.obs[1]}, expected ${expectedAngle}`)
+    env.dispose()
+  })
+
+  it('obs[2..4] = torso velocities (vx, vy, angvel)', () => {
+    const env = createHopperEnv()
+    const result = env.step([0, 0])
+    const torso = env.bodies['torso']
+    const vel = torso.linvel()
+    const angvel = torso.angvel()
+
+    assert.near(result.obs[2], vel.x, 0.01, `obs[2] vx: got ${result.obs[2]}, expected ${vel.x}`)
+    assert.near(result.obs[3], vel.y, 0.01, `obs[3] vy: got ${result.obs[3]}, expected ${vel.y}`)
+    assert.near(result.obs[4], angvel, 0.01, `obs[4] angvel: got ${result.obs[4]}, expected ${angvel}`)
+    env.dispose()
+  })
+
+  it('obs[5..8] = joint angles and angular velocities', () => {
+    const env = createHopperEnv()
+    const result = env.step([0, 0])
+
+    // Hopper joints: hip (idx 0), knee (idx 1)
+    // obs[5] = hip relative angle, obs[6] = hip relative angvel
+    // obs[7] = knee relative angle, obs[8] = knee relative angvel
+    for (let i = 0; i < HOPPER.joints.length; i++) {
+      const jDef = HOPPER.joints[i]
+      const bodyA = env.bodies[jDef.bodyA]
+      const bodyB = env.bodies[jDef.bodyB]
+      const expectedAngle = bodyB.rotation() - bodyA.rotation()
+      const expectedAngvel = bodyB.angvel() - bodyA.angvel()
+
+      const obsIdx = 5 + i * 2
+      assert.near(result.obs[obsIdx], expectedAngle, 0.01,
+        `obs[${obsIdx}] ${jDef.id} angle: got ${result.obs[obsIdx]}, expected ${expectedAngle}`)
+      assert.near(result.obs[obsIdx + 1], expectedAngvel, 0.01,
+        `obs[${obsIdx + 1}] ${jDef.id} angvel: got ${result.obs[obsIdx + 1]}, expected ${expectedAngvel}`)
+    }
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

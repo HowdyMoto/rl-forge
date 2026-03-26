@@ -14,8 +14,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import PhysicsRenderer from '../../components/PhysicsRenderer.jsx'
+import SceneHierarchy from '../../components/SceneHierarchy.jsx'
 import CreatureBuilder from '../../components/CreatureBuilder.jsx'
-import { parseMJCF } from '../../formats/mjcf/parser.js'
 import { computeDerivedFields } from '../../formats/bodyDef.js'
 import { BIPED } from '../../env/characters/biped.js'
 
@@ -77,11 +77,10 @@ export default function TestMode() {
   const [torqueDirection, setTorqueDirection] = useState(0)
   const [measurements, setMeasurements] = useState(null)
   const [showOverlay, setShowOverlay] = useState(true)
-  const [sourceType, setSourceType] = useState('builder') // 'builder' | 'mjcf' | 'json'
   const [pinned, setPinned] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const fileInputRef = useRef(null)
-  const [fileName, setFileName] = useState(null)
+  const [sceneSelectedId, setSceneSelectedId] = useState(null)
+  const [sceneSelectedType, setSceneSelectedType] = useState(null)
 
   // Initialize with default biped
   useEffect(() => {
@@ -120,6 +119,8 @@ export default function TestMode() {
             }
           }
           m.footContacts = msg.snapshot._footContacts || {}
+          m.obs = msg.snapshot._obs || null
+          m.rewardBreakdown = msg.snapshot._rewardBreakdown || null
           setMeasurements(m)
           if (msg.snapshot._debug?.pinned !== undefined) {
             setPinned(msg.snapshot._debug.pinned)
@@ -155,6 +156,25 @@ export default function TestMode() {
 
   const handlePinTorso = useCallback(() => {
     workerRef.current?.postMessage({ type: 'DEBUG_PIN_TORSO' })
+  }, [])
+
+  const handleSceneSelect = useCallback((id, type) => {
+    setSceneSelectedId(id)
+    setSceneSelectedType(type)
+  }, [])
+
+  const handleScenePropertyChange = useCallback((msg) => {
+    workerRef.current?.postMessage({ type: msg.type, config: msg.config })
+  }, [])
+
+  const handleBodyClick = useCallback((bodyId) => {
+    if (bodyId) {
+      setSceneSelectedId(bodyId)
+      setSceneSelectedType('body')
+    } else {
+      setSceneSelectedId(null)
+      setSceneSelectedType(null)
+    }
   }, [])
 
   // Joint control
@@ -216,39 +236,9 @@ export default function TestMode() {
     }
   }, [])
 
-  // File import
-  const handleFileImport = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-    setFileName(file.name)
-
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        let def
-        if (file.name.endsWith('.mjcf') || file.name.endsWith('.xml')) {
-          def = parseMJCF(reader.result)
-          setSourceType('mjcf')
-        } else {
-          def = JSON.parse(reader.result)
-          setSourceType('json')
-        }
-        setCharDef(def)
-        startDebug(def)
-      } catch (err) {
-        console.error('Import error:', err)
-        alert(`Import error: ${err.message}`)
-      }
-    }
-    reader.readAsText(file)
-  }
-
   // Creature builder change
   const handleCreatureChange = (def) => {
     setCharDef(def)
-    setSourceType('builder')
-    setFileName(null)
   }
 
   // Derived info
@@ -258,31 +248,8 @@ export default function TestMode() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* Top bar: source selector */}
+      {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: '"DM Mono", monospace', letterSpacing: '0.05em' }}>
-          SOURCE:
-        </span>
-        {fileName && (
-          <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)' }}>
-            {fileName}
-          </span>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".mjcf,.xml,.json"
-          onChange={handleFileImport}
-          style={{ display: 'none' }}
-        />
-        <button
-          className="btn btn-ghost"
-          onClick={() => fileInputRef.current?.click()}
-          style={{ padding: '5px 12px', fontSize: 10 }}
-        >
-          Import MJCF / JSON
-        </button>
-        <div style={{ flex: 1 }} />
         {charDef && (
           <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: '"DM Mono", monospace' }}>
             {charDef.name || 'unnamed'} · {charDef.bodies?.length || 0} bodies · {charDef.joints?.length || 0} joints · {totalMass.toFixed(1)}kg
@@ -349,15 +316,27 @@ export default function TestMode() {
                 )}
               </div>
             </div>
-            <div style={{ height: expanded ? 'calc(100vh - 200px)' : 400 }}>
+            <div style={{ height: expanded ? 'calc(100vh - 200px)' : 400, position: 'relative' }}>
               {isRunning && snapshot ? (
-                <PhysicsRenderer
-                  snapshot={snapshot}
-                  episodeReward={0}
-                  episodeSteps={0}
-                  onDebugMouse={handleDebugMouse}
-                  autoFollow={false}
-                />
+                <>
+                  <PhysicsRenderer
+                    snapshot={snapshot}
+                    episodeReward={0}
+                    episodeSteps={0}
+                    onDebugMouse={handleDebugMouse}
+                    autoFollow={false}
+                    highlightBodyId={sceneSelectedType === 'body' ? sceneSelectedId : null}
+                    onBodyClick={handleBodyClick}
+                  />
+                  <SceneHierarchy
+                    snapshot={snapshot}
+                    selectedId={sceneSelectedId}
+                    selectedType={sceneSelectedType}
+                    onSelect={handleSceneSelect}
+                    onPropertyChange={handleScenePropertyChange}
+                    editable={true}
+                  />
+                </>
               ) : (
                 <div style={{
                   height: '100%',
@@ -439,6 +418,146 @@ export default function TestMode() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Observation inspector (live) */}
+          {isRunning && measurements?.obs && showOverlay && (
+            <div className="panel">
+              <div className="panel-header">◎ observation vector ({measurements.obs.length}D)</div>
+              <div style={{ padding: '8px 14px', fontFamily: '"DM Mono", monospace', fontSize: 10, lineHeight: 1.8 }}>
+                {(() => {
+                  const obs = measurements.obs
+                  const labels = []
+                  const useSinCos = charDef?.sinCosAngles ?? false
+                  // Base: [height, angle, vx, vy, angvel] or [height, sinθ, cosθ, vx, vy, angvel]
+                  labels.push({ i: 0, label: 'height', desc: 'torso.y' })
+                  if (useSinCos) {
+                    labels.push({ i: 1, label: 'sin(θ)', desc: 'sin(torso.rotation)' })
+                    labels.push({ i: 2, label: 'cos(θ)', desc: 'cos(torso.rotation)' })
+                    labels.push({ i: 3, label: 'vx', desc: 'torso.linvel.x' })
+                    labels.push({ i: 4, label: 'vy', desc: 'torso.linvel.y' })
+                    labels.push({ i: 5, label: 'angVel', desc: 'torso.angvel' })
+                  } else {
+                    labels.push({ i: 1, label: 'angle', desc: 'torso.rotation' })
+                    labels.push({ i: 2, label: 'vx', desc: 'torso.linvel.x' })
+                    labels.push({ i: 3, label: 'vy', desc: 'torso.linvel.y' })
+                    labels.push({ i: 4, label: 'angVel', desc: 'torso.angvel' })
+                  }
+                  let idx = useSinCos ? 6 : 5
+                  // Joint angles/velocities
+                  for (const j of (charDef?.joints || [])) {
+                    if (useSinCos && j.type !== 'prismatic') {
+                      labels.push({ i: idx, label: `sin(${j.id})`, desc: `sin(${j.bodyB}.rot - ${j.bodyA}.rot)` })
+                      labels.push({ i: idx + 1, label: `cos(${j.id})`, desc: `cos(relative angle)` })
+                      labels.push({ i: idx + 2, label: `${j.id}_angVel`, desc: 'relative angvel' })
+                      idx += 3
+                    } else {
+                      labels.push({ i: idx, label: `${j.id}_angle`, desc: `${j.bodyB}.rot - ${j.bodyA}.rot` })
+                      labels.push({ i: idx + 1, label: `${j.id}_angVel`, desc: 'relative angvel' })
+                      idx += 2
+                    }
+                  }
+                  // Foot contacts
+                  for (const b of (charDef?.bodies || [])) {
+                    if (b.isFootBody) {
+                      labels.push({ i: idx, label: `${b.id}_contact`, desc: 'ground contact' })
+                      idx++
+                    }
+                  }
+                  // Any remaining (terrain, etc.)
+                  while (idx < obs.length) {
+                    labels.push({ i: idx, label: `terrain[${idx - labels.length + (labels.length - idx)}]`, desc: 'heightfield' })
+                    idx++
+                  }
+
+                  return labels.map(({ i, label, desc }) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, color: 'rgba(255,255,255,0.55)' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.25)', width: 20, textAlign: 'right' }}>[{i}]</span>
+                      <span style={{ color: 'var(--gold)', width: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+                      <span style={{ width: 70, textAlign: 'right' }}>
+                        {obs[i] !== undefined ? obs[i].toFixed(4) : '—'}
+                      </span>
+                      <span style={{ color: 'rgba(255,255,255,0.2)' }}>{desc}</span>
+                    </div>
+                  ))
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Reward breakdown (live) */}
+          {isRunning && measurements?.rewardBreakdown && showOverlay && (
+            <div className="panel">
+              <div className="panel-header">◎ reward breakdown (per step)</div>
+              <div style={{ padding: '10px 14px', fontFamily: '"DM Mono", monospace', fontSize: 10 }}>
+                {measurements.rewardBreakdown.components.map((c, i) => {
+                  const maxBar = 1.5 // scale: 1.5 maps to full bar width
+                  const barPct = Math.min(100, Math.abs(c.value) / maxBar * 100)
+                  const isPositive = c.value >= 0
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ width: 100, color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{c.label}</span>
+                      <div style={{
+                        flex: 1,
+                        height: 14,
+                        background: 'rgba(255,255,255,0.03)',
+                        borderRadius: 3,
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}>
+                        <div style={{
+                          position: 'absolute',
+                          [isPositive ? 'left' : 'right']: 0,
+                          top: 0,
+                          height: '100%',
+                          width: `${barPct}%`,
+                          background: isPositive ? 'rgba(74, 222, 128, 0.25)' : 'rgba(248, 113, 113, 0.25)',
+                          borderRadius: 3,
+                          transition: 'width 0.1s',
+                        }} />
+                      </div>
+                      <span style={{
+                        width: 60,
+                        textAlign: 'right',
+                        flexShrink: 0,
+                        color: isPositive ? '#4ade80' : '#f87171',
+                        fontVariantNumeric: 'tabular-nums',
+                      }}>
+                        {isPositive ? '+' : ''}{c.value.toFixed(3)}
+                      </span>
+                    </div>
+                  )
+                })}
+                {/* Total */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  marginTop: 8, paddingTop: 8,
+                  borderTop: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <span style={{ width: 100, color: 'rgba(255,255,255,0.7)', fontWeight: 600, flexShrink: 0 }}>Total</span>
+                  <div style={{ flex: 1 }} />
+                  <span style={{
+                    width: 60,
+                    textAlign: 'right',
+                    flexShrink: 0,
+                    color: measurements.rewardBreakdown.total >= 0 ? '#4ade80' : '#f87171',
+                    fontWeight: 600,
+                    fontSize: 12,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {measurements.rewardBreakdown.total >= 0 ? '+' : ''}{measurements.rewardBreakdown.total.toFixed(3)}
+                  </span>
+                </div>
+                {/* Health status */}
+                <div style={{ marginTop: 6, fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>
+                  {measurements.rewardBreakdown.healthy
+                    ? <span style={{ color: '#4ade80' }}>healthy</span>
+                    : <span style={{ color: '#f87171' }}>terminated</span>
+                  }
+                  {measurements.rewardBreakdown.done && <span> · done</span>}
                 </div>
               </div>
             </div>
@@ -766,10 +885,7 @@ export default function TestMode() {
           {/* Creature builder */}
           <div className="panel" style={{ flex: '1 1 250px' }}>
             <div className="panel-header">
-              <span>◧ body source</span>
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>
-                {sourceType === 'mjcf' ? 'MJCF' : sourceType === 'json' ? 'JSON' : 'BUILDER'}
-              </span>
+              <span>◧ creature builder</span>
             </div>
             <div style={{ padding: '10px 12px' }}>
               <CreatureBuilder

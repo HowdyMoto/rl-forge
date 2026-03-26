@@ -85,7 +85,7 @@ const MIN_SCALE = 40
 const MAX_SCALE = 500
 const ZOOM_SPEED = 1.1
 
-export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps, onDebugMouse, autoFollow = true }) {
+export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps, onDebugMouse, autoFollow = true, highlightBodyId = null, onBodyClick = null }) {
   const canvasRef = useRef(null)
   const cameraXRef = useRef(0)
   const cameraYRef = useRef(0)
@@ -102,6 +102,10 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
 
   // Drag state for debug mode
   const dragRef = useRef({ active: false, bodyId: null, wx: 0, wy: 0, prevWx: 0, prevWy: 0, prevTime: 0 })
+  // Click-to-select tracking (distinguish click from drag)
+  const clickStartRef = useRef({ sx: 0, sy: 0 })
+  const onBodyClickRef = useRef(onBodyClick)
+  onBodyClickRef.current = onBodyClick
   const snapshotRef = useRef(null)
   snapshotRef.current = snapshot
 
@@ -209,6 +213,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
     // ── Mouse down: right/middle = pan, left = drag body ──
     const onMouseDown = (e) => {
       const { sx, sy } = getCanvasXY(e)
+      clickStartRef.current = { sx, sy }
 
       // Right-click or middle-click: pan
       if (e.button === 1 || e.button === 2) {
@@ -280,6 +285,19 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
         onDebugMouse({ type: 'release', bodyId: d.bodyId, vx: Math.max(-maxV, Math.min(maxV, vx)), vy: Math.max(-maxV, Math.min(maxV, vy)) })
         dragRef.current = { active: false, bodyId: null, wx: 0, wy: 0, prevWx: 0, prevWy: 0, prevTime: 0 }
         canvas.style.cursor = 'default'
+        return
+      }
+
+      // Click-to-select (left button, no drag)
+      if (e.button === 0 && onBodyClickRef.current) {
+        const { sx, sy } = getCanvasXY(e)
+        const dx = sx - clickStartRef.current.sx
+        const dy = sy - clickStartRef.current.sy
+        if (dx * dx + dy * dy < 25) { // less than 5px movement = click
+          const { wx, wy } = screenToWorld(sx, sy)
+          const bodyId = findBody(wx, wy)
+          onBodyClickRef.current(bodyId) // null clears selection
+        }
       }
     }
 
@@ -413,6 +431,29 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       ctx.moveTo(0, gScreen.sy)
       ctx.lineTo(W, gScreen.sy)
       ctx.stroke()
+
+      // Ground tick marks – makes forward/backward motion obvious
+      const tickSpacing = 0.5          // world-units apart
+      const tickFirst = Math.floor((camX - W / S / 2) / tickSpacing) * tickSpacing
+      const tickLast  = camX + W / S / 2 + tickSpacing
+      for (let wx = tickFirst; wx <= tickLast; wx += tickSpacing) {
+        const { sx } = ws(wx, groundY)
+        const isMajor = Math.abs(wx - Math.round(wx)) < 0.01
+        const tickH = isMajor ? 12 : 6
+        ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.12)'
+        ctx.lineWidth = isMajor ? 1.5 : 1
+        ctx.beginPath()
+        ctx.moveTo(sx, gScreen.sy)
+        ctx.lineTo(sx, gScreen.sy + tickH)
+        ctx.stroke()
+        // Number label on major ticks
+        if (isMajor) {
+          ctx.fillStyle = 'rgba(255,255,255,0.2)'
+          ctx.font = '10px monospace'
+          ctx.textAlign = 'center'
+          ctx.fillText(`${Math.round(wx)}m`, sx, gScreen.sy + tickH + 11)
+        }
+      }
     }
 
     if (!snapshot) return
@@ -462,6 +503,37 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       if (!t) continue
       const { sx, sy } = ws(t.x, t.y)
       drawShape(ctx, sx, sy, t.angle, bodyDef, getBodyColor(bodyDef), S)
+
+      // Highlight selected body
+      if (highlightBodyId && bodyDef.id === highlightBodyId) {
+        ctx.save()
+        ctx.translate(sx, sy)
+        ctx.rotate(-t.angle)
+        ctx.strokeStyle = '#e2b96f'
+        ctx.lineWidth = 2
+        ctx.shadowColor = 'rgba(226,185,111,0.6)'
+        ctx.shadowBlur = 10
+        if (bodyDef.shape === 'box') {
+          const pw = (bodyDef.w / 2) * S + 3
+          const ph = (bodyDef.h / 2) * S + 3
+          ctx.beginPath()
+          ctx.roundRect(-pw, -ph, pw * 2, ph * 2, 5)
+          ctx.stroke()
+        } else if (bodyDef.shape === 'capsule') {
+          const r = ((bodyDef.radius || 0.04) * S) + 3
+          const halfH = Math.max(0.001, ((bodyDef.length || 0.3) - 2 * (bodyDef.radius || 0.04)) / 2) * S
+          ctx.beginPath()
+          ctx.roundRect(-r, -halfH - r, r * 2, (halfH + r) * 2, r)
+          ctx.stroke()
+        } else if (bodyDef.shape === 'ball') {
+          const r = ((bodyDef.radius || 0.05) * S) + 3
+          ctx.beginPath()
+          ctx.arc(0, 0, r, 0, Math.PI * 2)
+          ctx.stroke()
+        }
+        ctx.shadowBlur = 0
+        ctx.restore()
+      }
     }
 
     // Draw joints
@@ -747,6 +819,27 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       ctx.fillText(`r ${(episodeReward || 0).toFixed(1)}`, W - 12, H - 12)
     }
 
+    // Red Light / Green Light indicator
+    if (snapshot._extra?.lightGreen !== undefined) {
+      const isGreen = snapshot._extra.lightGreen
+      const color = isGreen ? '#4ade80' : '#f87171'
+      const label = isGreen ? 'GO!' : 'STOP!'
+      // Large colored circle in top-center
+      const cx = W / 2, cy = 30, r = 16
+      ctx.beginPath()
+      ctx.arc(cx, cy, r, 0, Math.PI * 2)
+      ctx.fillStyle = color
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      // Label below
+      ctx.font = 'bold 12px "DM Mono", monospace'
+      ctx.textAlign = 'center'
+      ctx.fillStyle = color
+      ctx.fillText(label, cx, cy + r + 14)
+    }
+
     // Zoom indicator (when not default)
     const zoomPct = Math.round(S / DEFAULT_SCALE * 100)
     if (zoomPct !== 100) {
@@ -756,7 +849,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       ctx.fillText(`${zoomPct}%`, W - 12, 16)
     }
 
-  }, [snapshot, episodeReward, episodeSteps, canvasSize, autoFollow])
+  }, [snapshot, episodeReward, episodeSteps, canvasSize, autoFollow, highlightBodyId])
 
   return (
     <canvas

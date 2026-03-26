@@ -37,12 +37,11 @@ const CHAR_LOADERS = {
   hopper: () => import('../env/characters/hopper.js').then(m => m.HOPPER),
   walker2d: () => import('../env/characters/walker2d.js').then(m => m.WALKER2D),
   acrobot: () => import('../env/characters/acrobot.js').then(m => m.ACROBOT),
-  'acrobot-damped': async () => {
-    const { parseMJCF } = await import('../formats/mjcf/parser.js')
-    const mjcf = await fetch(new URL('../envs/acrobot_damped.mjcf', import.meta.url)).then(r => r.text())
-    return parseMJCF(mjcf)
-  },
+  'acrobot-damped': () => import('../env/characters/acrobot_damped.js').then(m => m.ACROBOT_DAMPED),
   terrain: () => import('../env/characters/biped.js').then(m => m.BIPED),
+  'spinner-constant': () => import('../env/characters/spinner_constant.js').then(m => m.SPINNER_CONSTANT),
+  'spinner-max': () => import('../env/characters/spinner_max.js').then(m => m.SPINNER_MAX),
+  'red-light-green-light': () => import('../env/characters/red_light_green_light.js').then(m => m.RED_LIGHT_GREEN_LIGHT),
 }
 
 /**
@@ -63,6 +62,17 @@ function getEnvOpts(envType, charDef) {
     }
   }
 
+  // Spinner envs: velocity control, zero gravity
+  if (envType === 'spinner-constant' || envType === 'spinner-max' || envType === 'red-light-green-light') {
+    return {
+      controlMode: 'velocity',
+      physicsHz: 240,
+      policyHz: 30,
+      gravity: 0,
+      maxSteps: 1000,
+    }
+  }
+
   // CartPole: higher physics rate for stability
   if (envType === 'cartpole') {
     return {
@@ -76,7 +86,7 @@ function getEnvOpts(envType, charDef) {
 
   // Standard Rapier envs (Hopper, Walker2D, Acrobot)
   return {
-    controlMode: 'velocity',
+    controlMode: 'pd',
     physicsHz: 120,
     policyHz: 30,
     maxSteps: 1000,
@@ -112,8 +122,17 @@ async function initTFBackend() {
     try {
       await tf.setBackend(b)
       await tf.ready()
+      // Smoke-test: run a small matmul to catch WebGPU pipeline errors
+      // (e.g. storage buffer limit not requested by TF.js)
+      const a = tf.ones([2, 2])
+      const c = tf.matMul(a, a)
+      await c.data()          // force GPU execution
+      tf.dispose([a, c])
       return { backend: b, deviceName: gpu.deviceName }
-    } catch { continue }
+    } catch {
+      try { tf.disposeVariables() } catch { /* */ }
+      continue
+    }
   }
   return { backend: 'cpu', deviceName: '' }
 }
@@ -122,7 +141,13 @@ async function initTFBackend() {
 
 async function initRapier() {
   if (!RAPIER) {
-    RAPIER = await import('@dimforge/rapier2d')
+    RAPIER = await import('@dimforge/rapier2d-compat')
+    // Fetch and pass WASM bytes directly — the compat package's default URL
+    // resolution is broken in bundled builds
+    const wasmModule = await import(
+      '@dimforge/rapier2d-compat/rapier_wasm2d_bg.wasm?url'
+    )
+    await RAPIER.init(wasmModule.default)
     postMessage({ type: 'STATUS', msg: 'Rapier WASM ready' })
   }
 }
@@ -193,6 +218,10 @@ async function runVectorizedLoop(maxUpdates, numEnvs) {
   let t_update = 0
   let t_rolloutStart = performance.now()
 
+  // Reward component accumulator (sampled from env[0] each step)
+  let rewardCompSums = {}
+  let rewardCompCount = 0
+
   while (!stopped && updateCount < maxUpdates) {
     while (paused && !stopped) await new Promise(r => setTimeout(r, 100))
     if (stopped) break
@@ -205,6 +234,15 @@ async function runVectorizedLoop(maxUpdates, numEnvs) {
     const { obs: nextRawObsArray, rewards: rawRewards, dones } = env.stepAll(actions)
     const t2 = performance.now()
     t_physics += t2 - t1
+
+    // Sample reward breakdown from env[0] for visualization
+    const rb = env.getRewardBreakdown()
+    if (rb?.components) {
+      for (const c of rb.components) {
+        rewardCompSums[c.label] = (rewardCompSums[c.label] ?? 0) + c.value
+      }
+      rewardCompCount++
+    }
 
     agent.updateObsStats(nextRawObsArray)
     const nextObsArray = agent.normalizeObsBatch(nextRawObsArray)
@@ -266,9 +304,19 @@ async function runVectorizedLoop(maxUpdates, numEnvs) {
       const recent = episodeRewards.slice(-20)
       const meanReward = recent.length > 0 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0
 
+      // Average reward component breakdown over this rollout
+      const rewardBreakdown = {}
+      if (rewardCompCount > 0) {
+        for (const [label, sum] of Object.entries(rewardCompSums)) {
+          rewardBreakdown[label] = sum / rewardCompCount
+        }
+      }
+      rewardCompSums = {}
+      rewardCompCount = 0
+
       postMessage({
         type: 'METRICS',
-        data: { update: updateCount, totalSteps, totalEpisodes, meanReward20: meanReward, ...metrics, timing, tensorMemory: tf.memory().numTensors }
+        data: { update: updateCount, totalSteps, totalEpisodes, meanReward20: meanReward, ...metrics, timing, tensorMemory: tf.memory().numTensors, rewardBreakdown }
       })
 
       await new Promise(r => setTimeout(r, 0))
@@ -295,6 +343,10 @@ async function runPlayback(config) {
   let episodeSteps = 0
   let totalEpisodes = 0
 
+  // Diagnostic: capture first N steps for debugging
+  const DIAG_STEPS = 60
+  const diagLog = []
+
   while (!stopped) {
     while (paused && !stopped) await new Promise(r => setTimeout(r, 100))
     if (stopped) break
@@ -303,9 +355,36 @@ async function runPlayback(config) {
       ? agent.actDeterministicMulti(obs)
       : agent.actDeterministic(obs)
 
-    const { obs: nextRawObs, reward, done } = env.step(action)
+    const { obs: nextRawObs, reward, done, info } = env.step(action)
     episodeReward += reward
     episodeSteps++
+
+    // Capture diagnostic data for first steps of first episode
+    if (totalEpisodes === 0 && diagLog.length < DIAG_STEPS) {
+      const rb = env.computeRewardBreakdown?.()
+      diagLog.push({
+        step: episodeSteps,
+        rawObs: rawObs.map(v => +v.toFixed(4)),
+        normObs: obs.map(v => +v.toFixed(4)),
+        action: (Array.isArray(action) || ArrayBuffer.isView(action)) ? Array.from(action).map(v => +v.toFixed(4)) : +action.toFixed(4),
+        reward: +reward.toFixed(4),
+        done,
+        info: info ? { healthy: info.healthy, stepCount: info.stepCount } : undefined,
+        rewardComponents: rb?.components?.map(c => ({ label: c.label, value: +c.value.toFixed(4) })),
+        bodies: (() => {
+          const snap = env.getRenderSnapshot()
+          const b = {}
+          for (const [id, s] of Object.entries(snap)) {
+            if (id.startsWith('_')) continue
+            b[id] = { x: +s.x.toFixed(3), y: +s.y.toFixed(3), angle: +(s.angle * 180 / Math.PI).toFixed(1) }
+          }
+          return b
+        })(),
+      })
+      if (diagLog.length === DIAG_STEPS || done) {
+        postMessage({ type: 'PLAYBACK_DIAGNOSTIC', data: { envType, obsSize: env.observationSize, actionSize: env.actionSize, steps: diagLog } })
+      }
+    }
 
     postMessage({
       type: 'RENDER_SNAPSHOT',
@@ -318,6 +397,10 @@ async function runPlayback(config) {
     obs = agent.normalizeObs(rawObs)
 
     if (done) {
+      // Send diagnostic if episode ended early
+      if (totalEpisodes === 0 && diagLog.length > 0 && diagLog.length < DIAG_STEPS) {
+        postMessage({ type: 'PLAYBACK_DIAGNOSTIC', data: { envType, obsSize: env.observationSize, actionSize: env.actionSize, steps: diagLog } })
+      }
       postMessage({ type: 'EPISODE', data: { episode: totalEpisodes, reward: episodeReward, steps: episodeSteps, totalSteps: 0 } })
       episodeReward = 0
       episodeSteps = 0
@@ -522,6 +605,9 @@ async function runPhysicsDebug(config) {
       })
     }
 
+    snapshot._obs = env._getObs()
+    snapshot._rewardBreakdown = env.computeRewardBreakdown()
+
     snapshot._debug = {
       joints: snapshot._joints,
       activeJoint: debugActiveJoint,
@@ -653,6 +739,41 @@ self.onmessage = async ({ data: { type, config } }) => {
       } else {
         rb.setBodyType(RAPIER.RigidBodyType.Dynamic, true)
         postMessage({ type: 'STATUS', msg: 'Physics debug · torso released' })
+      }
+      break
+    }
+
+    // ── Scene Hierarchy property editing ──────────────────────────────────
+    case 'SCENE_SET_BODY_POS': {
+      const targetEnv = env?.envs ? env.envs[0] : env
+      const bodyRb = targetEnv?.bodies[config.bodyId]
+      if (bodyRb) bodyRb.setTranslation({ x: config.x, y: config.y }, true)
+      break
+    }
+    case 'SCENE_SET_BODY_ANGLE': {
+      const targetEnv = env?.envs ? env.envs[0] : env
+      const bodyRb = targetEnv?.bodies[config.bodyId]
+      if (bodyRb) bodyRb.setRotation(config.angle, true)
+      break
+    }
+    case 'SCENE_SET_BODY_LINVEL': {
+      const targetEnv = env?.envs ? env.envs[0] : env
+      const bodyRb = targetEnv?.bodies[config.bodyId]
+      if (bodyRb) bodyRb.setLinvel({ x: config.vx, y: config.vy }, true)
+      break
+    }
+    case 'SCENE_SET_BODY_ANGVEL': {
+      const targetEnv = env?.envs ? env.envs[0] : env
+      const bodyRb = targetEnv?.bodies[config.bodyId]
+      if (bodyRb) bodyRb.setAngvel(config.angvel, true)
+      break
+    }
+    case 'SCENE_SET_MOTOR_TARGET': {
+      const targetEnv = env?.envs ? env.envs[0] : env
+      const joint = targetEnv?.joints[config.jointId]
+      const jDef = targetEnv?.def.joints?.find(j => j.id === config.jointId)
+      if (joint && jDef) {
+        joint.configureMotorVelocity(config.target, jDef.maxTorque || 100)
       }
       break
     }

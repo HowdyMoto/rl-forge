@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test: Body Creation</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+import { describe, it, assert, report } from './harness.js'
+import { createHopperEnv, createMinimalEnv, HOPPER } from './helpers.js'
+import { UnifiedRapierEnv } from '../src/env/unifiedEnv.js'
+
+describe('Body Creation', () => {
+  it('creates correct number of bodies', () => {
+    const env = createHopperEnv()
+    const bodyKeys = Object.keys(env.bodies)
+    assert.equal(bodyKeys.length, HOPPER.bodies.length,
+      `Expected ${HOPPER.bodies.length} bodies, got ${bodyKeys.length}: [${bodyKeys}]`)
+    env.dispose()
+  })
+
+  it('body IDs match character definition', () => {
+    const env = createHopperEnv()
+    for (const bDef of HOPPER.bodies) {
+      assert.true(bDef.id in env.bodies, `Body '${bDef.id}' should exist`)
+    }
+    env.dispose()
+  })
+
+  it('mass matches character definition for each body', () => {
+    const env = createHopperEnv()
+    for (const bDef of HOPPER.bodies) {
+      if (bDef.fixed) continue
+      const rb = env.bodies[bDef.id]
+      assert.near(rb.mass(), bDef.mass, 0.01,
+        `${bDef.id}: mass=${rb.mass()}, expected=${bDef.mass}`)
+    }
+    env.dispose()
+  })
+
+  it('fixed bodies are actually fixed', async () => {
+    // Acrobot has a fixed torso anchor
+    const { ACROBOT } = await import('../src/env/characters/acrobot.js')
+    const env = new UnifiedRapierEnv(ACROBOT, {
+      controlMode: 'velocity', terrain: false, gravity: -9.81,
+      physicsHz: 240, policyHz: 30, maxSteps: 1000,
+    })
+    env.reset()
+
+    const fixedBodies = ACROBOT.bodies.filter(b => b.fixed)
+    assert.greaterThan(fixedBodies.length, 0, 'Acrobot should have at least one fixed body')
+
+    for (const bDef of fixedBodies) {
+      const rb = env.bodies[bDef.id]
+      assert.true(rb.isFixed(), `${bDef.id} should be fixed`)
+    }
+    env.dispose()
+  })
+
+  it('spawn positions match character definition (pre-perturbation)', () => {
+    // Build world directly without reset perturbation to check raw positions
+    const env = new UnifiedRapierEnv(HOPPER, {
+      controlMode: 'velocity', terrain: false, gravity: -9.81,
+      physicsHz: 240, policyHz: 30, maxSteps: 1000,
+    })
+    // Call _buildWorld directly to check positions before reset perturbation
+    env._buildWorld()
+
+    for (const bDef of HOPPER.bodies) {
+      const rb = env.bodies[bDef.id]
+      const pos = rb.translation()
+      assert.near(pos.x, bDef.spawnX ?? 0, 0.001,
+        `${bDef.id} spawnX: got ${pos.x}, expected ${bDef.spawnX}`)
+      assert.near(pos.y, bDef.spawnY ?? 0, 0.001,
+        `${bDef.id} spawnY: got ${pos.y}, expected ${bDef.spawnY}`)
+    }
+    env.dispose()
+  })
+
+  it('ground is created at specified y position', () => {
+    const env = createHopperEnv()
+    // Ground should exist — the env creates it as a fixed body
+    // We can verify by dropping a body and checking it doesn't fall through
+    // Step many times and verify torso doesn't go below ground
+    for (let i = 0; i < 200; i++) {
+      env.step([0, 0])
+    }
+    const torso = env.bodies['torso']
+    const y = torso.translation().y
+    const groundY = HOPPER.ground?.y ?? 0
+    assert.greaterThan(y, groundY - 0.1,
+      `Torso at y=${y.toFixed(3)} should be above ground at y=${groundY}`)
+    env.dispose()
+  })
+})
+
+await report()
+</script>
+</body>
+</html>

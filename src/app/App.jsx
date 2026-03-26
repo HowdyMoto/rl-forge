@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { globalCSS } from './styles.js'
 import TrainMode from './routes/TrainMode.jsx'
 import BuildMode from './routes/BuildMode.jsx'
@@ -14,7 +14,7 @@ const MODES = [
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <style>{globalCSS}</style>
       <div style={{
         minHeight: '100vh',
@@ -82,6 +82,6 @@ export default function App() {
         </footer>
 
       </div>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
