@@ -110,6 +110,7 @@ export default function TrainMode() {
   const [status, setStatus] = useState('idle')
   const [backend, setBackend] = useState('')
   const [ppoConfig, setPpoConfig] = useState(DEFAULT_PPO_CONFIG)
+  const [numEnvs, setNumEnvs] = useState(8)
   const [exportUrl, setExportUrl] = useState(null)
   const [playbackDiag, setPlaybackDiag] = useState(null)
   const [resetEvent, setResetEvent] = useState(null)
@@ -217,6 +218,7 @@ export default function TrainMode() {
       envType,
       ppoConfig: { ...ppoConfig, ...envCfg.ppoOverrides },
       maxUpdates: 3000,
+      numEnvs,
     }
 
     if (isTerrainMode && customCharDef) {
@@ -783,6 +785,31 @@ export default function TrainMode() {
               </div>
               <div style={{ padding: '14px 16px', overflowY: 'auto' }}>
                 <HyperParams onChange={setPpoConfig} disabled={isRunning} overrides={ENV_CONFIGS[envType]?.ppoOverrides} />
+
+                {/* numEnvs — separate from PPO config */}
+                <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, fontFamily: '"DM Mono", monospace' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center' }}>
+                      Parallel Envs
+                      <Tooltip text={'Number of independent environment copies stepped each frame. More envs = more experience per policy update, better gradient estimates, and amortized GPU overhead.\n\nHigher values use more CPU (physics) and memory (one Rapier world per env). Watch the physics timing in the metrics bar — if it dominates, you\'ve hit the single-thread ceiling.'} />
+                    </span>
+                    <span style={{ fontSize: 13, color: '#e2b96f' }}>{numEnvs}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1} max={64} step={1}
+                    value={numEnvs}
+                    disabled={isRunning}
+                    onChange={e => setNumEnvs(parseInt(e.target.value))}
+                    style={{
+                      width: '100%',
+                      accentColor: '#e2b96f',
+                      cursor: isRunning ? 'not-allowed' : 'pointer',
+                      opacity: isRunning ? 0.4 : 1,
+                      marginTop: 4,
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}

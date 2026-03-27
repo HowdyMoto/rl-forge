@@ -23,7 +23,7 @@ export const DEFAULT_PPO_CONFIG = {
   // Rollout
   stepsPerUpdate: 2048,
   numEpochs: 10,
-  minibatchSize: 64,
+  minibatchSize: 256,
   // PPO
   clipEpsilon: 0.2,
   entropyCoef: 0.0,     // CleanRL/SB3 use exactly 0.0 for continuous control
