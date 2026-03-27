@@ -112,6 +112,7 @@ export default function TrainMode() {
   const [ppoConfig, setPpoConfig] = useState(DEFAULT_PPO_CONFIG)
   const [exportUrl, setExportUrl] = useState(null)
   const [playbackDiag, setPlaybackDiag] = useState(null)
+  const [resetEvent, setResetEvent] = useState(null)
   const [selectedTab, setSelectedTab] = useState('sim')
   const fileInputRef = useRef(null)
 
@@ -162,6 +163,9 @@ export default function TrainMode() {
           setEpisodeSteps(msg.episodeSteps)
           if (msg.snapshot?._maxDistance) {
             setBestDistance(prev => Math.max(prev, msg.snapshot._maxDistance))
+          }
+          if (msg.resetReason) {
+            setResetEvent({ reason: msg.resetReason, reward: msg.episodeReward, steps: msg.episodeSteps, time: performance.now() })
           }
           break
         case 'METRICS':
@@ -349,7 +353,7 @@ export default function TrainMode() {
 
   // Renderer: universal PhysicsRenderer for all environments
   // TerrainRenderer kept for terrain mode (has terrain-specific drawing)
-  const renderSnapshotProps = { snapshot: hopperSnapshot, episodeReward, episodeSteps }
+  const renderSnapshotProps = { snapshot: hopperSnapshot, episodeReward, episodeSteps, resetEvent }
   const sceneHighlightId = sceneSelectedType === 'body' ? sceneSelectedId : null
   const canEditScene = trainingState !== TRAINING_STATES.RUNNING
   let simContent

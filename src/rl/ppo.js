@@ -288,17 +288,25 @@ function gaussianLogProb(action, mean, logStd) {
 
 // ─── GAE (Generalized Advantage Estimation) ───────────────────────────────────
 
-function computeGAE(rewards, values, dones, nextValue, gamma, lambda) {
+function computeGAE(rewards, values, dones, lastValues, gamma, lambda, numEnvs) {
   const n = rewards.length
   const advantages = new Float32Array(n)
-  let lastGAE = 0
+  const stepsPerEnv = n / numEnvs
 
-  for (let t = n - 1; t >= 0; t--) {
-    const nextVal = t === n - 1 ? nextValue : values[t + 1]
-    const mask = dones[t] ? 0 : 1
-    const delta = rewards[t] + gamma * nextVal * mask - values[t]
-    lastGAE = delta + gamma * lambda * mask * lastGAE
-    advantages[t] = lastGAE
+  // Compute GAE per environment to avoid cross-env contamination.
+  // Buffer layout: [env0_t0, env1_t0, ..., envN_t0, env0_t1, ...].
+  // For env e, entries are at indices: e, e+N, e+2N, ...
+  for (let e = 0; e < numEnvs; e++) {
+    let lastGAE = 0
+    for (let s = stepsPerEnv - 1; s >= 0; s--) {
+      const idx = s * numEnvs + e
+      const nextIdx = (s + 1) * numEnvs + e
+      const nextVal = s === stepsPerEnv - 1 ? lastValues[e] : values[nextIdx]
+      const mask = dones[idx] ? 0 : 1
+      const delta = rewards[idx] + gamma * nextVal * mask - values[idx]
+      lastGAE = delta + gamma * lambda * mask * lastGAE
+      advantages[idx] = lastGAE
+    }
   }
 
   const returns = new Float32Array(n)
@@ -518,23 +526,23 @@ export class PPOAgent {
   }
 
   /** Deterministic action for evaluation/rendering (no noise) — scalar */
-  actDeterministic(obs) {
-    return tf.tidy(() => {
-      const obsTensor = tf.tensor2d([obs])
-      const mean = this.actor.predict(obsTensor)
-      const action = tf.tanh(mean)
-      return action.dataSync()[0]
-    })
+  async actDeterministic(obs) {
+    const obsTensor = tf.tensor2d([obs])
+    const mean = this.actor.predict(obsTensor)
+    const action = tf.tanh(mean)
+    const result = (await action.data())[0]
+    tf.dispose([obsTensor, mean, action])
+    return result
   }
 
   /** Deterministic multi-dim action for continuous control */
-  actDeterministicMulti(obs) {
-    return tf.tidy(() => {
-      const obsTensor = tf.tensor2d([obs])
-      const mean = this.actor.predict(obsTensor)
-      const action = tf.tanh(mean)
-      return new Float32Array(action.dataSync())
-    })
+  async actDeterministicMulti(obs) {
+    const obsTensor = tf.tensor2d([obs])
+    const mean = this.actor.predict(obsTensor)
+    const action = tf.tanh(mean)
+    const result = new Float32Array(await action.data())
+    tf.dispose([obsTensor, mean, action])
+    return result
   }
 
   /** Load actor weights from an exported JSON object */
@@ -570,7 +578,7 @@ export class PPOAgent {
   }
 
   /** Run PPO update on collected buffer. Returns training metrics. */
-  async update(lastObs) {
+  async update(lastObsArray, numEnvs = 1) {
     const cfg = this.cfg
     const n = this.buffer.obs.length
 
@@ -580,20 +588,27 @@ export class PPOAgent {
     const currentLR = cfg.learningRate * Math.max(frac, 0)
     this.optimizer.learningRate = currentLR
 
-    // Bootstrap value for last state
-    const lastValue = tf.tidy(() => {
-      const obsTensor = tf.tensor2d([lastObs])
-      return this.critic.predict(obsTensor).dataSync()[0]
-    })
+    // Bootstrap values for all environments' last states
+    const lastObsBatch = Array.isArray(lastObsArray[0]) || ArrayBuffer.isView(lastObsArray[0])
+      ? lastObsArray   // already an array of obs vectors
+      : [lastObsArray] // single obs, wrap for backward compat
+    let lastValues
+    {
+      const obsTensor = tf.tensor2d(lastObsBatch)
+      const pred = this.critic.predict(obsTensor)
+      lastValues = Array.from(await pred.data())
+      tf.dispose([obsTensor, pred])
+    }
 
-    // Compute GAE advantages and returns
+    // Compute GAE advantages and returns (per-environment to handle interleaved buffer)
     const { advantages, returns } = computeGAE(
       this.buffer.rewards,
       this.buffer.values,
       this.buffer.dones,
-      lastValue,
+      lastValues,
       cfg.gamma,
-      cfg.lambda
+      cfg.lambda,
+      numEnvs
     )
 
     // Flatten buffer to tensors
@@ -753,16 +768,15 @@ export class PPOAgent {
 
   /** Export actor weights + obs normalization stats as JSON blob URL */
   async exportModel() {
-    const blob = await new Promise(resolve => {
-      const weights = {}
-      this.actor.trainableWeights.forEach((w, i) => {
-        weights[`actor_${i}`] = Array.from(w.val.dataSync())
-      })
-      weights['logStd'] = Array.from(this.logStd.dataSync())
-      // Include obs normalization stats so imported weights work correctly
-      weights['obsRms'] = this.obsRms.toJSON()
-      resolve(new Blob([JSON.stringify(weights)], { type: 'application/json' }))
-    })
+    const weights = {}
+    for (let i = 0; i < this.actor.trainableWeights.length; i++) {
+      const w = this.actor.trainableWeights[i]
+      weights[`actor_${i}`] = Array.from(await w.val.data())
+    }
+    weights['logStd'] = Array.from(await this.logStd.data())
+    // Include obs normalization stats so imported weights work correctly
+    weights['obsRms'] = this.obsRms.toJSON()
+    const blob = new Blob([JSON.stringify(weights)], { type: 'application/json' })
     return URL.createObjectURL(blob)
   }
 }

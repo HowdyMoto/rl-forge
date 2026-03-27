@@ -405,7 +405,7 @@ export class UnifiedRapierEnv {
     if (this.def.onStep) this.def.onStep(this)
 
     // Health check & termination
-    const { healthy, done, timedOut } = this._checkTermination(torsoPos, torsoRot)
+    const { healthy, done, timedOut, reason } = this._checkTermination(torsoPos, torsoRot)
 
     // Reward — use custom function if provided, otherwise default
     const reward = this.def.customRewardFn
@@ -424,6 +424,7 @@ export class UnifiedRapierEnv {
         stepCount: this.stepCount,
         distance: torsoPos.x,
         maxDistance: this._maxTorsoX,
+        reason,
       }
     }
   }
@@ -431,6 +432,9 @@ export class UnifiedRapierEnv {
   _stepVelocity(actions) {
     const def = this.def
     let ai = 0  // action index — only incremented for actuated joints
+
+    // Pre-compute prismatic forces and revolute motors before substep loop
+    const prismaticForces = []  // { body, fx, fy } for each prismatic joint
     def.joints.forEach((jointDef) => {
       if ((jointDef.maxTorque ?? 0) <= 0) return  // passive joint, no action
       const action = actions[ai++]
@@ -438,11 +442,10 @@ export class UnifiedRapierEnv {
       if (jointDef.type === 'prismatic') {
         // Direct force control for prismatic joints (e.g., CartPole rail).
         // action ∈ [-1, 1] maps to force ∈ [-maxTorque, +maxTorque].
-        // Applied via addForce once — Rapier persists it across substeps.
         const body = this.bodies[jointDef.bodyB]
         const axis = jointDef.axis || [1, 0]
         const force = action * (jointDef.maxTorque ?? 10)
-        body.addForce({ x: force * axis[0], y: force * axis[1] }, true)
+        prismaticForces.push({ body, fx: force * axis[0], fy: force * axis[1] })
       } else {
         // Revolute joints: velocity motor (standard for locomotion)
         const joint = this.joints[jointDef.id]
@@ -453,6 +456,10 @@ export class UnifiedRapierEnv {
     })
 
     for (let i = 0; i < this.substeps; i++) {
+      // Re-apply prismatic forces each substep (addForce is cleared by world.step)
+      for (const pf of prismaticForces) {
+        pf.body.addForce({ x: pf.fx, y: pf.fy }, true)
+      }
       this.world.step()
     }
   }
@@ -508,11 +515,16 @@ export class UnifiedRapierEnv {
     }
 
     let healthy = height >= minY && Math.abs(torsoRot) <= maxAngle
+    let reason = null
+    if (!healthy) reason = 'fell'
 
     // CartPole-specific: check cart position and pole angle limits
     if (r.cartPositionLimit !== undefined) {
       const cartX = torsoPos.x
-      if (Math.abs(cartX) > r.cartPositionLimit) healthy = false
+      if (Math.abs(cartX) > r.cartPositionLimit) {
+        healthy = false
+        reason = 'position'
+      }
     }
     if (r.poleAngleLimit !== undefined) {
       // Find the pole body's angle relative to the cart
@@ -522,13 +534,17 @@ export class UnifiedRapierEnv {
         const cartRb = this.bodies[this._forwardBody]
         if (poleRb && cartRb) {
           const poleAngle = poleRb.rotation() - cartRb.rotation()
-          if (Math.abs(poleAngle) > r.poleAngleLimit) healthy = false
+          if (Math.abs(poleAngle) > r.poleAngleLimit) {
+            healthy = false
+            reason = 'angle'
+          }
         }
       }
     }
 
+    if (timedOut) reason = 'timeout'
     const done = !healthy || timedOut
-    return { healthy, done, timedOut }
+    return { healthy, done, timedOut, reason }
   }
 
   _computeReward(forwardVel, actions, healthy, done, timedOut, torsoPos, torsoRot) {

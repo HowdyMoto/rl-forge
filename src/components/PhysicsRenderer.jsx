@@ -85,7 +85,7 @@ const MIN_SCALE = 40
 const MAX_SCALE = 500
 const ZOOM_SPEED = 1.1
 
-export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps, onDebugMouse, autoFollow = true, highlightBodyId = null, onBodyClick = null }) {
+export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps, resetEvent, onDebugMouse, autoFollow = true, highlightBodyId = null, onBodyClick = null }) {
   const canvasRef = useRef(null)
   const cameraXRef = useRef(0)
   const cameraYRef = useRef(0)
@@ -849,7 +849,48 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       ctx.fillText(`${zoomPct}%`, W - 12, 16)
     }
 
-  }, [snapshot, episodeReward, episodeSteps, canvasSize, autoFollow, highlightBodyId])
+    // Episode reset banner (fades out over 2s)
+    if (resetEvent) {
+      const elapsed = performance.now() - resetEvent.time
+      const BANNER_DURATION = 2000
+      if (elapsed < BANNER_DURATION) {
+        const alpha = Math.max(0, 1 - elapsed / BANNER_DURATION)
+        const isTimeout = resetEvent.reason === 'timeout'
+        const reasonLabels = {
+          angle: 'pole angle exceeded',
+          position: 'cart position exceeded',
+          fell: 'agent fell',
+          timeout: 'episode complete',
+        }
+        const label = isTimeout ? 'EPISODE COMPLETE' : 'RESET'
+        const detail = reasonLabels[resetEvent.reason] || resetEvent.reason
+        const color = isTimeout ? [74, 222, 128] : [224, 90, 90]
+        const [cr, cg, cb] = color
+
+        // Background pill
+        ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha * 0.15})`
+        const pillW = 260, pillH = 44, pillX = (W - pillW) / 2, pillY = 50
+        ctx.beginPath()
+        ctx.roundRect(pillX, pillY, pillW, pillH, 8)
+        ctx.fill()
+        ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha * 0.4})`
+        ctx.lineWidth = 1
+        ctx.stroke()
+
+        // Main label
+        ctx.textAlign = 'center'
+        ctx.font = '600 12px "DM Mono", monospace'
+        ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha})`
+        ctx.fillText(`${label} \u2014 ${detail}`, W / 2, pillY + 18)
+
+        // Episode summary
+        ctx.font = '500 10px "DM Mono", monospace'
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.6})`
+        ctx.fillText(`r ${resetEvent.reward.toFixed(1)}  \u00b7  ${resetEvent.steps} steps`, W / 2, pillY + 34)
+      }
+    }
+
+  }, [snapshot, episodeReward, episodeSteps, canvasSize, autoFollow, highlightBodyId, resetEvent])
 
   return (
     <canvas

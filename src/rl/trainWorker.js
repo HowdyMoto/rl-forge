@@ -14,7 +14,10 @@
  */
 
 import * as tf from '@tensorflow/tfjs'
-import '@tensorflow/tfjs-backend-webgpu'
+// This import auto-registers a 'webgpu' backend, but its factory omits
+// maxStorageBuffersPerShaderStage from requiredLimits. We re-register
+// in registerWebGPUBackend() with the missing limit included.
+import { WebGPUBackend } from '@tensorflow/tfjs-backend-webgpu'
 import { VecEnv } from '../env/vecEnv.js'
 import { PPOAgent, RewardNormalizer } from './ppo.js'
 
@@ -97,33 +100,71 @@ function getEnvOpts(envType, charDef) {
 
 const WEBGPU_MIN_STORAGE_BUFFERS = 16
 
-async function probeWebGPU() {
+/**
+ * Register a custom 'webgpu' backend that requests maxStorageBuffersPerShaderStage
+ * from the adapter. The stock TF.js registration omits this limit, causing
+ * pipeline creation failures on adapters that support >8 but default to 8.
+ */
+async function registerWebGPUBackend() {
   if (typeof navigator === 'undefined' || !navigator.gpu) return { viable: false, deviceName: '' }
   try {
     const adapter = await navigator.gpu.requestAdapter()
     if (!adapter) return { viable: false, deviceName: '' }
-    const maxBuffers = adapter.limits.maxStorageBuffersPerShaderStage
-    const viable = maxBuffers >= WEBGPU_MIN_STORAGE_BUFFERS
+
+    const adapterLimits = adapter.limits
+    if (adapterLimits.maxStorageBuffersPerShaderStage < WEBGPU_MIN_STORAGE_BUFFERS) {
+      return { viable: false, deviceName: '' }
+    }
+
     let deviceName = ''
     try {
-      const info = await adapter.requestAdapterInfo()
+      const info = 'info' in adapter ? adapter.info : await adapter.requestAdapterInfo()
       deviceName = info.device || info.description || ''
     } catch { /* */ }
-    return { viable, deviceName }
+
+    // Remove the stock registration (imported side-effect) so we can re-register.
+    // Must use findBackendFactory — findBackend only returns instantiated backends,
+    // which is null before first use, so our removal would be skipped.
+    if (tf.findBackendFactory('webgpu') != null) tf.removeBackend('webgpu')
+
+    tf.registerBackend('webgpu', async () => {
+      const requiredFeatures = []
+      if (adapter.features.has('timestamp-query')) requiredFeatures.push('timestamp-query')
+      if (adapter.features.has('bgra8unorm-storage')) requiredFeatures.push('bgra8unorm-storage')
+
+      const device = await adapter.requestDevice({
+        requiredFeatures,
+        requiredLimits: {
+          maxComputeWorkgroupStorageSize:    adapterLimits.maxComputeWorkgroupStorageSize,
+          maxComputeWorkgroupsPerDimension:  adapterLimits.maxComputeWorkgroupsPerDimension,
+          maxStorageBufferBindingSize:        adapterLimits.maxStorageBufferBindingSize,
+          maxBufferSize:                      adapterLimits.maxBufferSize,
+          maxComputeWorkgroupSizeX:           adapterLimits.maxComputeWorkgroupSizeX,
+          maxComputeInvocationsPerWorkgroup:  adapterLimits.maxComputeInvocationsPerWorkgroup,
+          // ── This is the missing limit that causes the pipeline errors ──
+          maxStorageBuffersPerShaderStage:    adapterLimits.maxStorageBuffersPerShaderStage,
+        },
+      })
+      const adapterInfo = 'info' in adapter ? adapter.info
+        : 'requestAdapterInfo' in adapter ? await adapter.requestAdapterInfo()
+        : undefined
+      return new WebGPUBackend(device, adapterInfo)
+    }, 3 /* priority */)
+
+    return { viable: true, deviceName }
   } catch {
     return { viable: false, deviceName: '' }
   }
 }
 
 async function initTFBackend() {
-  const gpu = await probeWebGPU()
+  const gpu = await registerWebGPUBackend()
   const backends = gpu.viable ? ['webgpu', 'webgl', 'cpu'] : ['webgl', 'cpu']
   for (const b of backends) {
     try {
       await tf.setBackend(b)
       await tf.ready()
-      // Smoke-test: run a small matmul to catch WebGPU pipeline errors
-      // (e.g. storage buffer limit not requested by TF.js)
+      // Smoke-test: run a small matmul to verify the backend works
       const a = tf.ones([2, 2])
       const c = tf.matMul(a, a)
       await c.data()          // force GPU execution
@@ -279,7 +320,7 @@ async function runVectorizedLoop(maxUpdates, numEnvs) {
 
     if (agent.bufferFull) {
       const tUpdateStart = performance.now()
-      const metrics = await agent.update(obsArray[0])
+      const metrics = await agent.update(obsArray, numEnvs)
       const tUpdateEnd = performance.now()
       t_update = tUpdateEnd - tUpdateStart
       updateCount++
@@ -352,8 +393,8 @@ async function runPlayback(config) {
     if (stopped) break
 
     const action = env.actionSize > 1
-      ? agent.actDeterministicMulti(obs)
-      : agent.actDeterministic(obs)
+      ? await agent.actDeterministicMulti(obs)
+      : await agent.actDeterministic(obs)
 
     const { obs: nextRawObs, reward, done, info } = env.step(action)
     episodeReward += reward
@@ -391,6 +432,7 @@ async function runPlayback(config) {
       snapshot: env.getRenderSnapshot(),
       episodeReward,
       episodeSteps,
+      resetReason: done ? (info?.reason || 'fell') : null,
     })
 
     rawObs = nextRawObs
@@ -402,6 +444,8 @@ async function runPlayback(config) {
         postMessage({ type: 'PLAYBACK_DIAGNOSTIC', data: { envType, obsSize: env.observationSize, actionSize: env.actionSize, steps: diagLog } })
       }
       postMessage({ type: 'EPISODE', data: { episode: totalEpisodes, reward: episodeReward, steps: episodeSteps, totalSteps: 0 } })
+      // Brief pause so user can register the reset banner
+      await new Promise(r => setTimeout(r, 500))
       episodeReward = 0
       episodeSteps = 0
       totalEpisodes++
