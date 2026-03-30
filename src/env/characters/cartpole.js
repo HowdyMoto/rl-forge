@@ -125,21 +125,32 @@ export const CARTPOLE = {
     angvel:   0.1,     // ± rad/s
   },
 
-  // These are now auto-computed by computeDerivedFields():
-  // obsSize: 9 (5 base + 2 prismatic + 2 revolute)
-  // actionSize: 1 (only rail — pole hinge is passive)
+  // Override obsSize to match customObsFn (4D classic CartPole observation)
+  obsSize: 4,
+  // actionSize: 1 (only rail — pole hinge is passive, auto-computed)
+
+  // Classic 4D observation: [cart_position, cart_velocity, pole_angle, pole_angular_velocity]
+  // The unified env's default obs includes 7 near-constant dimensions (cart height,
+  // cart angle, cart vy, cart angvel, etc.) that add noise after normalization.
+  customObsFn(env) {
+    const cart = env.bodies['torso']
+    const pole = env.bodies['pole']
+    if (!cart || !pole) return [0, 0, 0, 0]
+    const cartPos = cart.translation()
+    const cartVel = cart.linvel()
+    const poleAngle = pole.rotation() - cart.rotation()
+    const poleAngVel = pole.angvel() - cart.angvel()
+    return [cartPos.x, cartVel.x, poleAngle, poleAngVel]
+  },
 
   defaultReward: {
-    // CartPole reward: +1 for surviving, penalties for drifting
-    forwardVelWeight: 0,       // no forward velocity reward
-    aliveBonusWeight: 1.0,     // +1 per step alive
-    ctrlCostWeight: 0.0,       // no control cost
-    terminationPenalty: 1.0,   // -1 for falling
-    // Custom termination conditions (checked by env)
-    cartPositionLimit: 1.8,    // terminate if |cart_x| > 1.8 (well inside joint limit of 2.4)
-    poleAngleLimit: 24 * (Math.PI / 180),  // terminate if |pole_angle| > 24°
-    // Reward shaping (optional)
-    anglePenaltyWeight: 0.5,   // penalty for pole angle
-    positionPenaltyWeight: 0.5, // penalty for cart position (strong centering signal)
+    // Classic CartPole reward: +1 per step alive, -1 for falling
+    forwardVelWeight: 0,
+    aliveBonusWeight: 1.0,
+    ctrlCostWeight: 0.0,
+    terminationPenalty: 1.0,
+    // Termination conditions
+    cartPositionLimit: 1.8,
+    poleAngleLimit: 24 * (Math.PI / 180),
   },
 }

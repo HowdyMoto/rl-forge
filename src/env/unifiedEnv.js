@@ -677,6 +677,9 @@ export class UnifiedRapierEnv {
     const torso = this.bodies[this._forwardBody]
     if (!torso) return new Array(this._obsSize).fill(0)
 
+    // Custom observation function overrides the default builder
+    if (def.customObsFn) return def.customObsFn(this)
+
     const torsoPos = torso.translation()
     const torsoVel = torso.linvel()
     const torsoAngle = torso.rotation()

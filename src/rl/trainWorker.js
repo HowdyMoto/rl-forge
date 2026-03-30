@@ -244,7 +244,9 @@ async function runVectorizedLoop(maxUpdates, numEnvs) {
   let lastRenderTime = 0
   const RENDER_INTERVAL_MS = 16
 
-  const rewardNorm = new RewardNormalizer(numEnvs, agent.cfg.gamma)
+  const rewardNorm = agent.cfg.normalizeRewards
+    ? new RewardNormalizer(numEnvs, agent.cfg.gamma)
+    : null
   const epRewards = new Float32Array(numEnvs)
   const epSteps = new Uint32Array(numEnvs)
 
@@ -287,7 +289,7 @@ async function runVectorizedLoop(maxUpdates, numEnvs) {
 
     agent.updateObsStats(nextRawObsArray)
     const nextObsArray = agent.normalizeObsBatch(nextRawObsArray)
-    const rewards = rewardNorm.normalize(rawRewards, dones)
+    const rewards = rewardNorm ? rewardNorm.normalize(rawRewards, dones) : rawRewards
 
     agent.storeTransitions(obsArray, actions, rewards, dones, values, logProbs)
     totalSteps += numEnvs

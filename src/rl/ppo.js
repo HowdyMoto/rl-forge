@@ -32,6 +32,7 @@ export const DEFAULT_PPO_CONFIG = {
   // Returns
   gamma: 0.99,
   lambda: 0.95,
+  normalizeRewards: true,
   // Optimizer
   learningRate: 3e-4,
   // Training budget (for LR annealing)

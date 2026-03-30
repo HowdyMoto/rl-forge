@@ -22,9 +22,9 @@ const ENV_CONFIGS = {
   },
   cartpole: {
     label: 'CartPole',
-    desc: 'Inverted pendulum · 9 obs · 1 action',
+    desc: 'Inverted pendulum · 4 obs · 1 action',
     solvedThreshold: 450,
-    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, entropyCoef: 0.05 },
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, gamma: 0.95, normalizeRewards: false },
     tooltip: 'Classic control benchmark. The agent applies horizontal force to a cart to keep an inverted pendulum upright. 4D observation (position, velocity, pole angle, angular velocity), 1 continuous action. Solved at mean reward ≥ 450.',
   },
   hopper: {
@@ -217,7 +217,7 @@ export default function TrainMode() {
     const config = {
       envType,
       ppoConfig: { ...ppoConfig, ...envCfg.ppoOverrides },
-      maxUpdates: 3000,
+      maxUpdates: 10000,
       numEnvs,
     }
 

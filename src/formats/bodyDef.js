@@ -146,7 +146,8 @@ export function computeDerivedFields(def, options = {}) {
   const numRevolute = def.joints?.filter(j => j.type !== 'prismatic').length ?? 0
   const sinCosExtra = useSinCos ? (1 + numRevolute) : 0
   const baseObsSize = 5 + 2 * numJoints + numFootBodies + extraObsSize + sinCosExtra
-  const obsSize = terrain ? baseObsSize + TERRAIN_OBSERVATION_SAMPLES : baseObsSize
+  // Allow character defs to override obsSize (e.g., when using customObsFn)
+  const obsSize = def.obsSize ?? (terrain ? baseObsSize + TERRAIN_OBSERVATION_SAMPLES : baseObsSize)
 
   // Only count actuated joints (maxTorque > 0) as actions.
   // Passive joints (e.g., CartPole hinge) still contribute observations but no action.
