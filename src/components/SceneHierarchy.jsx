@@ -40,13 +40,13 @@ const S = {
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: '0.07em',
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.75)',
     flexShrink: 0,
   },
   closeBtn: {
     background: 'none',
     border: 'none',
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.7)',
     cursor: 'pointer',
     fontSize: 14,
     padding: '2px 4px',
@@ -71,11 +71,11 @@ const S = {
     background: 'rgba(7,7,15,0.85)',
     border: '1px solid rgba(255,255,255,0.1)',
     borderRadius: 6,
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.75)',
     cursor: 'pointer',
     padding: '6px 8px',
     fontSize: 11,
-    fontFamily: "'DM Mono', monospace",
+    fontFamily: "Inter, sans-serif",
     letterSpacing: '0.05em',
     transition: 'all 0.15s ease',
     pointerEvents: 'auto',
@@ -128,7 +128,7 @@ export default function SceneHierarchy({ snapshot, selectedId, selectedType, onS
           }}
           onMouseLeave={e => {
             e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
-            e.currentTarget.style.color = 'rgba(255,255,255,0.5)'
+            e.currentTarget.style.color = 'rgba(255,255,255,0.75)'
           }}
         >
           <span style={{ fontSize: 13 }}>&#9776;</span>

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Brush } from 'recharts'
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
@@ -10,7 +10,7 @@ const CustomTooltip = ({ active, payload, label }) => {
       borderRadius: 6,
       padding: '8px 12px',
       fontSize: 11,
-      fontFamily: '"DM Mono", monospace',
+      fontFamily: 'Inter, sans-serif',
       color: '#aaa'
     }}>
       <div style={{ color: '#e2b96f', marginBottom: 2 }}>update {label}</div>
@@ -39,7 +39,7 @@ export default function RewardChart({ metrics, solvedThreshold = 500 }) {
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           height: '100%', color: 'rgba(255,255,255,0.15)',
-          fontFamily: '"DM Mono", monospace', fontSize: 12
+          fontFamily: 'Inter, sans-serif', fontSize: 12
         }}>
           waiting for data...
         </div>
@@ -48,12 +48,12 @@ export default function RewardChart({ metrics, solvedThreshold = 500 }) {
           <LineChart data={data} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
             <XAxis
               dataKey="update"
-              tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: '"DM Mono", monospace' }}
+              tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10, fontFamily: 'Inter, sans-serif' }}
               tickLine={false}
               axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
             />
             <YAxis
-              tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: '"DM Mono", monospace' }}
+              tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10, fontFamily: 'Inter, sans-serif' }}
               tickLine={false}
               axisLine={false}
               domain={[Math.min(0, ...data.map(d => d.reward)), Math.max(1, maxReward * 1.1)]}
@@ -64,7 +64,7 @@ export default function RewardChart({ metrics, solvedThreshold = 500 }) {
               y={solvedThreshold}
               stroke="rgba(100,255,150,0.2)"
               strokeDasharray="4 4"
-              label={{ value: 'target', fill: 'rgba(100,255,150,0.4)', fontSize: 10, fontFamily: '"DM Mono", monospace' }}
+              label={{ value: 'target', fill: 'rgba(100,255,150,0.4)', fontSize: 10, fontFamily: 'Inter, sans-serif' }}
             />
             <Line
               type="monotone"
@@ -75,6 +75,14 @@ export default function RewardChart({ metrics, solvedThreshold = 500 }) {
               dot={false}
               activeDot={{ r: 3, fill: '#e2b96f' }}
               isAnimationActive={false}
+            />
+            <Brush
+              dataKey="update"
+              height={18}
+              stroke="rgba(255,255,255,0.15)"
+              fill="#0a0a14"
+              travellerWidth={8}
+              tickFormatter={() => ''}
             />
           </LineChart>
         </ResponsiveContainer>

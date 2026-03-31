@@ -119,7 +119,7 @@ export default function SharePanel({ charDef, exportUrl, bestDistance, bestRewar
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 6,
-      fontFamily: '"DM Mono", monospace',
+      fontFamily: 'Inter, sans-serif',
     }}>
       {/* Export creature design */}
       <button
@@ -173,7 +173,7 @@ export default function SharePanel({ charDef, exportUrl, bestDistance, bestRewar
       {/* Stats */}
       {charDef && (
         <div style={{
-          fontSize: 9, color: 'rgba(255,255,255,0.3)',
+          fontSize: 9, color: 'rgba(255,255,255,0.6)',
           display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2,
         }}>
           <div>creature: {charDef.name || 'unnamed'}</div>

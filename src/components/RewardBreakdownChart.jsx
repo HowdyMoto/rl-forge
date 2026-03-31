@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, ReferenceLine,
+  ResponsiveContainer, CartesianGrid, ReferenceLine, Brush,
 } from 'recharts'
 import InfoTooltip from './Tooltip.jsx'
 
@@ -27,9 +27,9 @@ const BreakdownTooltip = ({ active, payload, label }) => {
       borderRadius: 5,
       padding: '6px 10px',
       fontSize: 10,
-      fontFamily: '"DM Mono", monospace',
+      fontFamily: 'Inter, sans-serif',
     }}>
-      <div style={{ color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>update {label}</div>
+      <div style={{ color: 'rgba(255,255,255,0.65)', marginBottom: 4 }}>update {label}</div>
       {payload
         .filter(p => p.value != null)
         .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
@@ -65,7 +65,7 @@ export default function RewardBreakdownChart({ metrics }) {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         height: '100%', color: 'rgba(255,255,255,0.12)',
-        fontFamily: '"DM Mono", monospace', fontSize: 10,
+        fontFamily: 'Inter, sans-serif', fontSize: 10,
       }}>
         waiting for reward data...
       </div>
@@ -84,8 +84,8 @@ export default function RewardBreakdownChart({ metrics }) {
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div style={{
         position: 'absolute', top: 6, left: 10, zIndex: 1,
-        fontSize: 9, color: 'rgba(255,255,255,0.25)',
-        fontFamily: '"DM Mono", monospace',
+        fontSize: 9, color: 'rgba(255,255,255,0.55)',
+        fontFamily: 'Inter, sans-serif',
         letterSpacing: '0.06em', textTransform: 'uppercase',
         display: 'flex', alignItems: 'center',
       }}>
@@ -98,12 +98,12 @@ export default function RewardBreakdownChart({ metrics }) {
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
             <XAxis
               dataKey="update"
-              tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: '"DM Mono", monospace' }}
+              tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 9, fontFamily: 'Inter, sans-serif' }}
               tickLine={false}
               axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
             />
             <YAxis
-              tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: '"DM Mono", monospace' }}
+              tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 9, fontFamily: 'Inter, sans-serif' }}
               tickLine={false}
               axisLine={false}
               domain={[min - pad, max + pad]}
@@ -112,6 +112,14 @@ export default function RewardBreakdownChart({ metrics }) {
             />
             <Tooltip content={<BreakdownTooltip />} />
             <ReferenceLine y={0} stroke="rgba(255,255,255,0.08)" />
+            <Brush
+              dataKey="update"
+              height={18}
+              stroke="rgba(255,255,255,0.15)"
+              fill="#0a0a14"
+              travellerWidth={8}
+              tickFormatter={() => ''}
+            />
             {componentKeys.map(key => {
               const color = COMPONENT_COLORS[key] || fallbackColors[colorIdx++ % fallbackColors.length]
               return (

@@ -1,13 +1,13 @@
 // Shared CSS styles used across all modes
 export const globalCSS = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Inter:wght@300;400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
     background: #07070f;
     color: #e0e0e8;
-    font-family: 'DM Mono', monospace;
+    font-family: Inter, sans-serif;
     min-height: 100vh;
     overflow-x: hidden;
   }
@@ -19,7 +19,7 @@ export const globalCSS = `
     --surface: rgba(255,255,255,0.03);
     --surface-hover: rgba(255,255,255,0.05);
     --border: rgba(255,255,255,0.07);
-    --text-dim: rgba(255,255,255,0.5);
+    --text-dim: rgba(255,255,255,0.75);
     --red: #e05a5a;
     --green: #4ade80;
   }
@@ -47,7 +47,7 @@ export const globalCSS = `
     border: none;
     border-radius: 6px;
     cursor: pointer;
-    font-family: 'DM Mono', monospace;
+    font-family: Inter, sans-serif;
     font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.06em;
@@ -73,8 +73,8 @@ export const globalCSS = `
   }
   .btn-ghost:hover:not(:disabled) {
     background: var(--surface-hover);
-    color: rgba(255,255,255,0.6);
-    border-color: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.85);
+    border-color: rgba(255,255,255,0.2);
   }
 
   .btn-danger {
@@ -85,32 +85,6 @@ export const globalCSS = `
   .btn-danger:hover:not(:disabled) { background: rgba(224,90,90,0.2); }
 
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .env-tab {
-    flex: 1;
-    padding: 7px 10px;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-dim);
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: all 0.15s;
-    text-align: center;
-  }
-  .env-tab.active {
-    color: var(--gold);
-    border-bottom-color: var(--gold);
-    background: var(--gold-dim);
-  }
-  .env-tab:hover:not(.active):not(:disabled) {
-    color: rgba(255,255,255,0.5);
-    background: var(--surface-hover);
-  }
-  .env-tab:disabled { opacity: 0.35; cursor: not-allowed; }
 
   .pill {
     display: inline-flex;
@@ -147,7 +121,7 @@ export const globalCSS = `
     outline: 1px solid rgba(226,185,111,0.6);
     outline-offset: 2px;
     border-radius: 2px;
-    color: rgba(255,255,255,0.5) !important;
+    color: rgba(255,255,255,0.75) !important;
   }
 
   body::before {
@@ -182,7 +156,7 @@ export const globalCSS = `
     text-decoration: none;
   }
   .mode-tab:hover {
-    color: rgba(255,255,255,0.7);
+    color: rgba(255,255,255,0.9);
     background: var(--surface-hover);
   }
   .mode-tab.active {

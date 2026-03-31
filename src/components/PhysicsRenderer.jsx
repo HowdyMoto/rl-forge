@@ -342,7 +342,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
 
     if (!charDef) {
       ctx.fillStyle = 'rgba(255,255,255,0.1)'
-      ctx.font = '500 13px "DM Mono", monospace'
+      ctx.font = '500 13px Inter, sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText('Waiting for simulation...', W / 2, H / 2)
       return
@@ -440,7 +440,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
         const { sx } = ws(wx, groundY)
         const isMajor = Math.abs(wx - Math.round(wx)) < 0.01
         const tickH = isMajor ? 12 : 6
-        ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.12)'
+        ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.12)'
         ctx.lineWidth = isMajor ? 1.5 : 1
         ctx.beginPath()
         ctx.moveTo(sx, gScreen.sy)
@@ -448,7 +448,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
         ctx.stroke()
         // Number label on major ticks
         if (isMajor) {
-          ctx.fillStyle = 'rgba(255,255,255,0.2)'
+          ctx.fillStyle = 'rgba(255,255,255,0.55)'
           ctx.font = '10px monospace'
           ctx.textAlign = 'center'
           ctx.fillText(`${Math.round(wx)}m`, sx, gScreen.sy + tickH + 11)
@@ -646,7 +646,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
 
       // Body labels — only for relevant bodies
       if (relevantBodies.size > 0) {
-        ctx.font = '500 9px "DM Mono", monospace'
+        ctx.font = '500 9px Inter, sans-serif'
         ctx.textAlign = 'center'
         for (const bl of (snapshot._bodyLabels || debug.bodyLabels || [])) {
           if (!relevantBodies.has(bl.id)) continue
@@ -654,9 +654,9 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
           const t = snapshot[bl.id]
           if (!t) continue
           const { sx, sy } = ws(t.x, t.y)
-          ctx.fillStyle = 'rgba(255,255,255,0.5)'
+          ctx.fillStyle = 'rgba(255,255,255,0.75)'
           ctx.fillText(bl.id, sx, sy - 18)
-          ctx.fillStyle = 'rgba(255,255,255,0.25)'
+          ctx.fillStyle = 'rgba(255,255,255,0.55)'
           ctx.fillText(`${bl.mass}kg`, sx, sy - 8)
         }
       }
@@ -716,7 +716,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
         const angleDeg = (jDebug.angle * 180 / Math.PI).toFixed(0)
         const lowerDeg = (jDebug.lower * 180 / Math.PI).toFixed(0)
         const upperDeg = (jDebug.upper * 180 / Math.PI).toFixed(0)
-        ctx.font = '500 8px "DM Mono", monospace'
+        ctx.font = '500 8px Inter, sans-serif'
         ctx.textAlign = 'left'
         ctx.fillStyle = 'rgba(226,185,111,0.8)'
         ctx.fillText(`${jDef.id}: ${angleDeg}° [${lowerDeg},${upperDeg}]`, sx + arcRadius + 10, sy - 2)
@@ -788,22 +788,22 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       }
 
       // Debug mode label
-      ctx.font = '600 11px "DM Mono", monospace'
+      ctx.font = '600 11px Inter, sans-serif'
       ctx.textAlign = 'center'
       ctx.fillStyle = 'rgba(226,185,111,0.6)'
       ctx.fillText('PHYSICS DEBUG', W / 2, 20)
       const debugLabel = dragRef.current.active ? `dragging: ${dragRef.current.bodyId}`
         : debug.activeJoint ? `testing: ${debug.activeJoint}`
         : 'click body to drag · scroll to zoom · right-drag to pan'
-      ctx.font = '500 10px "DM Mono", monospace'
+      ctx.font = '500 10px Inter, sans-serif'
       ctx.fillStyle = 'rgba(226,185,111,0.4)'
       ctx.fillText(debugLabel, W / 2, 34)
     }
 
     // HUD
-    ctx.font = '500 10px "DM Mono", monospace'
+    ctx.font = '500 10px Inter, sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillStyle = 'rgba(255,255,255,0.35)'
+    ctx.fillStyle = 'rgba(255,255,255,0.65)'
 
     if (torsoSnap) {
       ctx.fillText(`pos ${torsoSnap.x.toFixed(2)}m`, 12, H - 42)
@@ -834,7 +834,7 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
       ctx.lineWidth = 2
       ctx.stroke()
       // Label below
-      ctx.font = 'bold 12px "DM Mono", monospace'
+      ctx.font = 'bold 12px Inter, sans-serif'
       ctx.textAlign = 'center'
       ctx.fillStyle = color
       ctx.fillText(label, cx, cy + r + 14)
@@ -844,8 +844,8 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
     const zoomPct = Math.round(S / DEFAULT_SCALE * 100)
     if (zoomPct !== 100) {
       ctx.textAlign = 'right'
-      ctx.fillStyle = 'rgba(255,255,255,0.3)'
-      ctx.font = '500 9px "DM Mono", monospace'
+      ctx.fillStyle = 'rgba(255,255,255,0.6)'
+      ctx.font = '500 9px Inter, sans-serif'
       ctx.fillText(`${zoomPct}%`, W - 12, 16)
     }
 
@@ -879,12 +879,12 @@ export default function PhysicsRenderer({ snapshot, episodeReward, episodeSteps,
 
         // Main label
         ctx.textAlign = 'center'
-        ctx.font = '600 12px "DM Mono", monospace'
+        ctx.font = '600 12px Inter, sans-serif'
         ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha})`
         ctx.fillText(`${label} \u2014 ${detail}`, W / 2, pillY + 18)
 
         // Episode summary
-        ctx.font = '500 10px "DM Mono", monospace'
+        ctx.font = '500 10px Inter, sans-serif'
         ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.6})`
         ctx.fillText(`r ${resetEvent.reward.toFixed(1)}  \u00b7  ${resetEvent.steps} steps`, W / 2, pillY + 34)
       }

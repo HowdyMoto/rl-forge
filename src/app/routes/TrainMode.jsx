@@ -9,6 +9,8 @@ import MetricsPanel from '../../components/MetricsPanel.jsx'
 import HyperParams from '../../components/HyperParams.jsx'
 import SceneHierarchy from '../../components/SceneHierarchy.jsx'
 import Tooltip from '../../components/Tooltip.jsx'
+import OverlaySidebar, { SIDEBAR_WIDTH } from '../../components/OverlaySidebar.jsx'
+import FloatingControls from '../../components/FloatingControls.jsx'
 import { DEFAULT_PPO_CONFIG } from '../../rl/ppo.js'
 import { decodeShareString } from '../../components/SharePanel.jsx'
 
@@ -27,12 +29,19 @@ const ENV_CONFIGS = {
     ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, gamma: 0.95, normalizeRewards: false },
     tooltip: 'Classic control benchmark. The agent applies horizontal force to a cart to keep an inverted pendulum upright. 4D observation (position, velocity, pole angle, angular velocity), 1 continuous action. Solved at mean reward ≥ 450.',
   },
+  pendulum: {
+    label: 'Pendulum',
+    desc: 'Swing-up balance · 3 obs · 1 action',
+    solvedThreshold: -200,
+    ppoOverrides: { hiddenSizes: [64, 64], stepsPerUpdate: 2048, normalizeRewards: false },
+    tooltip: 'Classic Gym Pendulum-v1. A single link hangs from a fixed pivot under gravity. Apply torque to swing it up and balance inverted. 3D observation (cos θ, sin θ, angular velocity), 1 continuous action. Dense reward penalizes angle, velocity, and torque. Best possible: 0 per step.',
+  },
   hopper: {
     label: 'Hopper',
-    desc: 'Monopod hopper · 10 obs · 2 actions',
+    desc: 'Monopod hopper · 12 obs · 3 actions',
     solvedThreshold: 1500,
-    ppoOverrides: { hiddenSizes: [64, 64] },
-    tooltip: 'Physics-based locomotion (Rapier2D). A single-legged robot learns to hop forward without falling. 10D observation, 2 continuous joint torques. More challenging than CartPole — contact dynamics, sparse-ish reward, harder exploration. Solved at mean reward ≥ 1500.',
+    ppoOverrides: { hiddenSizes: [64, 64], entropyCoef: 0.02, stepsPerUpdate: 2048 },
+    tooltip: 'Physics-based locomotion (Rapier2D). A single-legged robot learns to hop forward without falling. 12D observation, 3 continuous joint targets (PD control). More challenging than CartPole — contact dynamics, sparse-ish reward, harder exploration. Solved at mean reward ≥ 1500.',
   },
   walker2d: {
     label: 'Walker2D',
@@ -95,9 +104,8 @@ const TOOLTIPS = {
 
 const TRAINING_STATES = { IDLE: 'idle', RUNNING: 'running', PAUSED: 'paused' }
 
-export default function TrainMode() {
+export default function TrainMode({ envType, setEnvType, onTrainingStateChange, onRegisterBuildNew }) {
   const workerRef = useRef(null)
-  const [envType, setEnvType] = useState('terrain')
   const [trainingState, setTrainingState] = useState(TRAINING_STATES.IDLE)
 
   // Render state (unified: all envs use snapshots now)
@@ -114,8 +122,12 @@ export default function TrainMode() {
   const [exportUrl, setExportUrl] = useState(null)
   const [playbackDiag, setPlaybackDiag] = useState(null)
   const [resetEvent, setResetEvent] = useState(null)
-  const [selectedTab, setSelectedTab] = useState('sim')
   const fileInputRef = useRef(null)
+
+  // Sidebar overlay state
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarFullscreen, setSidebarFullscreen] = useState(false)
+  const [activeTab, setActiveTab] = useState('charts')
 
   // Creature builder state
   const [customCharDef, setCustomCharDef] = useState(null)
@@ -132,6 +144,34 @@ export default function TrainMode() {
 
   const isRunning = trainingState === TRAINING_STATES.RUNNING
   const isTerrainMode = envType === 'terrain'
+
+  // Notify App about training state for disabling env selector
+  useEffect(() => {
+    onTrainingStateChange?.(trainingState !== TRAINING_STATES.IDLE)
+  }, [trainingState, onTrainingStateChange])
+
+  // Register buildNew callback so header EnvSelector can trigger it
+  useEffect(() => {
+    onRegisterBuildNew?.(() => {
+      setEnvType('terrain')
+      setMetrics([])
+      setEpisodes(0)
+      setBestDistance(0)
+      setActiveTab('build')
+      setSidebarOpen(true)
+    })
+  }, [onRegisterBuildNew, setEnvType])
+
+  // Reset metrics when env changes
+  const prevEnvRef = useRef(envType)
+  useEffect(() => {
+    if (prevEnvRef.current !== envType) {
+      setMetrics([])
+      setEpisodes(0)
+      setBestDistance(0)
+      prevEnvRef.current = envType
+    }
+  }, [envType])
 
   // Check for shared creature in URL on load
   useEffect(() => {
@@ -170,7 +210,7 @@ export default function TrainMode() {
           }
           break
         case 'METRICS':
-          setMetrics(prev => [...prev.slice(-300), msg.data])
+          setMetrics(prev => [...prev, msg.data])
           break
         case 'EPISODE':
           setEpisodes(msg.data.episode + 1)
@@ -257,7 +297,7 @@ export default function TrainMode() {
     setDebugJoint(null)
     setDebugDirection(0)
     setTrainingState(TRAINING_STATES.RUNNING)
-    setSelectedTab('sim')
+
 
     const config = { charDef: customCharDef }
     worker.postMessage({ type: 'PHYSICS_DEBUG', config })
@@ -326,7 +366,7 @@ export default function TrainMode() {
       setHopperSnapshot(null)
       setExportUrl(null)
       setTrainingState(TRAINING_STATES.RUNNING)
-      setSelectedTab('sim')
+  
 
       const envCfg = ENV_CONFIGS[envType]
       const config = {
@@ -392,463 +432,383 @@ export default function TrainMode() {
 
   const trainLabel = isTerrainMode ? (customCharDef?.name || 'Creature') : ENV_CONFIGS[envType].label
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarOpen(prev => !prev)
+  }, [])
 
-      {/* Status pills */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+  const handleToggleFullscreen = useCallback(() => {
+    setSidebarFullscreen(prev => !prev)
+  }, [])
+
+  // Build sidebar tabs based on current env mode
+  const sidebarTabs = []
+
+  sidebarTabs.push({
+    id: 'charts',
+    icon: '◈',
+    label: 'Charts',
+    content: (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        <div style={{ height: 400 }}>
+          <TrainingCharts metrics={metrics} solvedThreshold={solvedThreshold} />
+        </div>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '8px 4px' }}>
+          <div style={{ padding: '4px 10px', fontSize: 10, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Reward Curve · target: {solvedThreshold}
+          </div>
+          <div style={{ height: 150 }}>
+            <RewardChart metrics={metrics} solvedThreshold={solvedThreshold} />
+          </div>
+        </div>
+      </div>
+    ),
+    fullscreenContent: (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24, height: '100%' }}>
+        <div style={{ flex: 2, minHeight: 0 }}>
+          <TrainingCharts metrics={metrics} solvedThreshold={solvedThreshold} />
+        </div>
+        <div style={{ flex: 1, minHeight: 0, borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 16 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+            Reward Curve · target: {solvedThreshold}
+          </div>
+          <div style={{ height: 'calc(100% - 28px)' }}>
+            <RewardChart metrics={metrics} solvedThreshold={solvedThreshold} />
+          </div>
+        </div>
+      </div>
+    ),
+  })
+
+  sidebarTabs.push({
+    id: 'metrics',
+    icon: '◉',
+    label: 'Metrics',
+    content: (
+      <div style={{ padding: '14px 16px' }}>
+        <MetricsPanel metrics={metrics} episodes={episodes} status={status} backend={backend} />
+      </div>
+    ),
+  })
+
+  if (!isTerrainMode) {
+    sidebarTabs.push({
+      id: 'params',
+      icon: '⚙',
+      label: 'Params',
+      content: (
+        <div style={{ padding: '14px 16px', overflowY: 'auto' }}>
+          <HyperParams onChange={setPpoConfig} disabled={isRunning} overrides={ENV_CONFIGS[envType]?.ppoOverrides} />
+          <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, fontFamily: 'Inter, sans-serif' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center' }}>
+                Parallel Envs
+                <Tooltip text={'Number of independent environment copies stepped each frame. More envs = more experience per policy update, better gradient estimates, and amortized GPU overhead.\n\nHigher values use more CPU (physics) and memory (one Rapier world per env). Watch the physics timing in the metrics bar — if it dominates, you\'ve hit the single-thread ceiling.'} />
+              </span>
+              <span style={{ fontSize: 13, color: '#e2b96f' }}>{numEnvs}</span>
+            </div>
+            <input
+              type="range"
+              min={1} max={64} step={1}
+              value={numEnvs}
+              disabled={isRunning}
+              onChange={e => setNumEnvs(parseInt(e.target.value))}
+              style={{
+                width: '100%',
+                accentColor: '#e2b96f',
+                cursor: isRunning ? 'not-allowed' : 'pointer',
+                opacity: isRunning ? 0.4 : 1,
+                marginTop: 4,
+              }}
+            />
+          </div>
+        </div>
+      ),
+    })
+  }
+
+  if (isTerrainMode) {
+    sidebarTabs.push({
+      id: 'build',
+      icon: '◧',
+      label: 'Build',
+      content: (
+        <div style={{ padding: '10px 12px' }}>
+          <CreatureBuilder
+            onCreatureChange={setCustomCharDef}
+            disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
+          />
+        </div>
+      ),
+    })
+
+    sidebarTabs.push({
+      id: 'share',
+      icon: '⎘',
+      label: 'Share',
+      content: (
+        <div style={{ padding: '10px 12px' }}>
+          <SharePanel
+            charDef={customCharDef}
+            exportUrl={exportUrl}
+            bestDistance={bestDistance}
+            bestReward={latestReward}
+            onImportCreature={handleImportCreature}
+          />
+        </div>
+      ),
+    })
+  }
+
+  sidebarTabs.push({
+    id: 'network',
+    icon: '◫',
+    label: 'Net',
+    content: (
+      <div style={{ padding: '12px 14px', fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.8, fontFamily: 'Inter, sans-serif' }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          Actor: {networkDesc.actor}
+          <Tooltip text={TOOLTIPS.actor} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          Critic: same width → 1
+          <Tooltip text={TOOLTIPS.critic} />
+        </div>
+        <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.7)', fontSize: 10, lineHeight: 1.6, display: 'flex', alignItems: 'center' }}>
+          obs: {networkDesc.obs}
+          <Tooltip text={TOOLTIPS.obs} />
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10, display: 'flex', alignItems: 'center' }}>
+          act: {networkDesc.actions}
+          <Tooltip text={TOOLTIPS.act} />
+        </div>
+        {isTerrainMode && (
+          <div style={{ color: 'rgba(74,222,128,0.5)', fontSize: 9, marginTop: 4 }}>
+            PD control: kp=300 kd=30 · 240Hz physics · 30Hz policy
+          </div>
+        )}
+      </div>
+    ),
+  })
+
+  sidebarTabs.push({
+    id: 'export',
+    icon: '↕',
+    label: 'Export',
+    content: (
+      <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          className="btn btn-ghost"
+          onClick={() => {
+            setExportUrl(null)
+            workerRef.current?.postMessage({ type: 'EXPORT' })
+          }}
+          disabled={metrics.length === 0}
+          style={{ width: '100%', justifyContent: 'center' }}
+        >
+          {exportUrl ? '✓ Export Ready — Click Again' : '↓ Export Weights'}
+        </button>
+
+        {exportUrl && (
+          <a href={exportUrl} download={`${customCharDef?.name || envType}_policy.json`}
+            style={{
+              display: 'block', textAlign: 'center', padding: '8px',
+              background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.25)',
+              borderRadius: 6, color: 'var(--green)', fontSize: 11,
+              fontFamily: 'Inter, sans-serif', letterSpacing: '0.06em', textDecoration: 'none',
+              fontWeight: 500,
+            }}
+          >
+            ↓ Download {customCharDef?.name || envType}_policy.json
+          </a>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleImportPlay}
+          style={{ display: 'none' }}
+        />
+        <button
+          className="btn btn-ghost"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
+          style={{ width: '100%', justifyContent: 'center' }}
+        >
+          ↑ Import &amp; Play
+        </button>
+
+        {isTerrainMode && (
+          <>
+            <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+            <button
+              className="btn btn-ghost"
+              onClick={debugMode ? handleStop : handlePhysicsDebug}
+              disabled={isRunning && !debugMode}
+              style={{
+                width: '100%', justifyContent: 'center',
+                color: debugMode ? 'var(--gold)' : undefined,
+                borderColor: debugMode ? 'var(--gold-border)' : undefined,
+              }}
+            >
+              {debugMode ? '■ Stop Debug' : '⚙ Physics Debug'}
+            </button>
+          </>
+        )}
+
+        {/* Playback diagnostic */}
+        {playbackDiag && (
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 4, paddingTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Playback Diagnostic</span>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  navigator.clipboard.writeText(JSON.stringify(playbackDiag, null, 2))
+                  alert('Diagnostic copied to clipboard — paste it to Claude for analysis')
+                }}
+                style={{ padding: '3px 8px', fontSize: 9 }}
+              >
+                copy
+              </button>
+            </div>
+            <div style={{ fontSize: 10, fontFamily: 'Inter, sans-serif', color: 'rgba(255,255,255,0.75)' }}>
+              <div>{playbackDiag.envType} · {playbackDiag.obsSize}D obs · {playbackDiag.actionSize}D act · {playbackDiag.steps.length} steps</div>
+              <div style={{ marginTop: 4 }}>
+                ep1 reward: {playbackDiag.steps.reduce((s, d) => s + d.reward, 0).toFixed(1)}
+                {' · '}
+                {playbackDiag.steps[playbackDiag.steps.length - 1]?.done ? 'terminated' : 'ongoing'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Debug joint tester */}
+        {debugMode && isTerrainMode && customCharDef && (
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', marginTop: 4, paddingTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Joint Tester</span>
+              <button className="btn btn-ghost" onClick={handleDebugReset} style={{ padding: '3px 8px', fontSize: 9 }}>reset pose</button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {(customCharDef.joints || []).map(j => (
+                <button
+                  key={j.id}
+                  onClick={() => handleDebugJointChange(debugJoint === j.id ? null : j.id)}
+                  style={{
+                    flex: '1 1 auto', padding: '5px 8px',
+                    background: debugJoint === j.id ? 'var(--gold-dim)' : 'var(--surface)',
+                    border: `1px solid ${debugJoint === j.id ? 'var(--gold-border)' : 'var(--border)'}`,
+                    borderRadius: 5, color: debugJoint === j.id ? 'var(--gold)' : 'var(--text-dim)',
+                    fontFamily: 'Inter, sans-serif', fontSize: 10, cursor: 'pointer', letterSpacing: '0.03em',
+                  }}
+                >
+                  {j.id}
+                </button>
+              ))}
+            </div>
+            {debugJoint && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <button className="btn"
+                  onMouseDown={() => handleDebugDirection(-1)} onMouseUp={() => handleDebugDirection(0)} onMouseLeave={() => handleDebugDirection(0)}
+                  style={{
+                    flex: 1, justifyContent: 'center', padding: '8px',
+                    background: debugDirection === -1 ? 'rgba(224,90,90,0.15)' : 'var(--surface)',
+                    color: debugDirection === -1 ? 'var(--red)' : 'var(--text-dim)',
+                    border: `1px solid ${debugDirection === -1 ? 'rgba(224,90,90,0.3)' : 'var(--border)'}`,
+                  }}
+                >← torque −</button>
+                <button className="btn"
+                  onMouseDown={() => handleDebugDirection(1)} onMouseUp={() => handleDebugDirection(0)} onMouseLeave={() => handleDebugDirection(0)}
+                  style={{
+                    flex: 1, justifyContent: 'center', padding: '8px',
+                    background: debugDirection === 1 ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
+                    color: debugDirection === 1 ? 'var(--green)' : 'var(--text-dim)',
+                    border: `1px solid ${debugDirection === 1 ? 'rgba(74,222,128,0.2)' : 'var(--border)'}`,
+                  }}
+                >torque + →</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    ),
+  })
+
+  // If active tab no longer exists (e.g., switched from terrain to non-terrain), fall back
+  if (!sidebarTabs.find(t => t.id === activeTab)) {
+    // Don't call setActiveTab in render — use effect or just override
+  }
+  const effectiveTab = sidebarTabs.find(t => t.id === activeTab) ? activeTab : sidebarTabs[0]?.id
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, position: 'relative', minHeight: 0 }}>
+
+      {/* Status pills — floating top-right of canvas */}
+      <div style={{
+        position: 'absolute', top: 8, right: sidebarOpen ? SIDEBAR_WIDTH + 56 : 56,
+        zIndex: 15, display: 'flex', alignItems: 'center', gap: 8,
+        transition: 'right 0.2s ease', pointerEvents: 'none',
+      }}>
         {isTerrainMode && bestDistance > 0 && (
-          <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)' }}>
+          <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)', pointerEvents: 'auto' }}>
             best: {bestDistance.toFixed(1)}m
           </span>
         )}
         {isSolved && (
-          <span className="pill" style={{ background: 'rgba(74,222,128,0.12)', color: 'var(--green)', border: '1px solid rgba(74,222,128,0.2)', display: 'inline-flex', alignItems: 'center' }}>
+          <span className="pill" style={{ background: 'rgba(74,222,128,0.12)', color: 'var(--green)', border: '1px solid rgba(74,222,128,0.2)', display: 'inline-flex', alignItems: 'center', pointerEvents: 'auto' }}>
             ✓ solved
             <Tooltip text={TOOLTIPS.solved} />
           </span>
         )}
         {metrics.length > 0 && (
-          <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)', display: 'inline-flex', alignItems: 'center' }}>
+          <span className="pill" style={{ background: 'var(--gold-dim)', color: 'var(--gold)', border: '1px solid var(--gold-border)', display: 'inline-flex', alignItems: 'center', pointerEvents: 'auto' }}>
             {latestReward.toFixed(0)} / {solvedThreshold} avg
             <Tooltip text={TOOLTIPS.avgPill} />
           </span>
         )}
       </div>
 
-      {/* Main layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 16, flex: 1 }}>
+      {/* Canvas — fills all available space */}
+      <div style={{ flex: 1, position: 'relative', minHeight: 0, borderRadius: 10, overflow: 'hidden' }}>
+        {simContent}
 
-        {/* Left column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Scene hierarchy overlay (left side) */}
+        {hopperSnapshot && (
+          <SceneHierarchy
+            snapshot={hopperSnapshot}
+            selectedId={sceneSelectedId}
+            selectedType={sceneSelectedType}
+            onSelect={handleSceneSelect}
+            onPropertyChange={handleScenePropertyChange}
+            editable={canEditScene}
+          />
+        )}
 
-          {/* Env selector + sim/chart tabs */}
-          <div className="panel">
-            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-              {Object.entries(ENV_CONFIGS).map(([key, cfg]) => (
-                <button
-                  key={key}
-                  className={`env-tab ${envType === key ? 'active' : ''}`}
-                  onClick={() => { setEnvType(key); setMetrics([]); setEpisodes(0); setBestDistance(0) }}
-                  disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-                    {cfg.label}
-                    <Tooltip text={cfg.tooltip} />
-                  </span>
-                  <span style={{ fontSize: 10, display: 'block', marginTop: 2, opacity: 0.7 }}>
-                    {cfg.desc}
-                  </span>
-                </button>
-              ))}
+        {/* Floating train/pause/stop controls */}
+        <FloatingControls
+          trainingState={trainingState}
+          trainLabel={trainLabel}
+          onTrain={handleTrain}
+          onPause={handlePause}
+          onStop={handleStop}
+          sidebarOpen={sidebarOpen}
+          sidebarWidth={SIDEBAR_WIDTH}
+        />
 
-              {/* Sim/Chart toggle on right */}
-              <div style={{ marginLeft: 'auto', display: 'flex', borderLeft: '1px solid var(--border)' }}>
-                {['sim', 'chart'].map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setSelectedTab(tab)}
-                    style={{
-                      background: selectedTab === tab ? 'rgba(255,255,255,0.04)' : 'transparent',
-                      border: 'none',
-                      color: selectedTab === tab ? 'rgba(255,255,255,0.6)' : 'var(--text-dim)',
-                      fontFamily: '"DM Mono", monospace',
-                      fontSize: 9,
-                      letterSpacing: '0.1em',
-                      textTransform: 'uppercase',
-                      padding: '0 14px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {tab === 'sim' ? '⬡ sim' : '◈ chart'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ height: selectedTab === 'chart' ? 580 : 300, position: 'relative' }}>
-              {selectedTab === 'sim' ? (
-                <>
-                  {simContent}
-                  {hopperSnapshot && (
-                    <SceneHierarchy
-                      snapshot={hopperSnapshot}
-                      selectedId={sceneSelectedId}
-                      selectedType={sceneSelectedType}
-                      onSelect={handleSceneSelect}
-                      onPropertyChange={handleScenePropertyChange}
-                      editable={canEditScene}
-                    />
-                  )}
-                </>
-              ) : (
-                <TrainingCharts metrics={metrics} solvedThreshold={solvedThreshold} />
-              )}
-            </div>
-          </div>
-
-          {/* Always-visible reward chart when sim tab is active */}
-          {selectedTab === 'sim' && (
-            <div className="panel" style={{ flex: '1 1 160px' }}>
-              <div className="panel-header">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  ◈ reward curve
-                  <Tooltip text={TOOLTIPS.rewardCurve} />
-                </span>
-                <span>target: {solvedThreshold}</span>
-              </div>
-              <div style={{ height: 150, padding: '8px 4px' }}>
-                <RewardChart metrics={metrics} solvedThreshold={solvedThreshold} />
-              </div>
-            </div>
-          )}
-
-          {/* Metrics */}
-          <div className="panel">
-            <div className="panel-header">
-              <span style={{ display: 'flex', alignItems: 'center' }}>
-                ◉ training metrics
-                <Tooltip text={TOOLTIPS.trainingMetrics} />
-              </span>
-            </div>
-            <div style={{ padding: '14px 16px' }}>
-              <MetricsPanel metrics={metrics} episodes={episodes} status={status} backend={backend} />
-            </div>
-          </div>
-        </div>
-
-        {/* Right column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* Controls */}
-          <div className="panel">
-            <div className="panel-header">◎ controls</div>
-            <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <button
-                className="btn btn-primary"
-                onClick={handleTrain}
-                disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
-                style={{ width: '100%', justifyContent: 'center', padding: '10px 14px', fontSize: 12 }}
-              >
-                ▶ Train {trainLabel}
-              </button>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <button
-                  className="btn btn-ghost"
-                  onClick={handlePause}
-                  disabled={trainingState === TRAINING_STATES.IDLE}
-                  style={{ justifyContent: 'center' }}
-                >
-                  {trainingState === TRAINING_STATES.PAUSED ? '▶ Resume' : '⏸ Pause'}
-                </button>
-                <button
-                  className="btn btn-danger"
-                  onClick={handleStop}
-                  disabled={trainingState === TRAINING_STATES.IDLE}
-                  style={{ justifyContent: 'center' }}
-                >
-                  ■ Stop
-                </button>
-              </div>
-
-              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-
-              <button
-                className="btn btn-ghost"
-                onClick={() => {
-                  setExportUrl(null)
-                  workerRef.current?.postMessage({ type: 'EXPORT' })
-                }}
-                disabled={metrics.length === 0}
-                style={{ width: '100%', justifyContent: 'center' }}
-              >
-                {exportUrl ? '✓ Export Ready — Click Again to Re-export' : '↓ Export Weights'}
-              </button>
-
-              {exportUrl && (
-                <a href={exportUrl} download={`${customCharDef?.name || envType}_policy.json`}
-                  onClick={() => {/* auto-download triggered */}}
-                  style={{
-                    display: 'block', textAlign: 'center', padding: '8px',
-                    background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.25)',
-                    borderRadius: 6, color: 'var(--green)', fontSize: 11,
-                    fontFamily: '"DM Mono", monospace', letterSpacing: '0.06em', textDecoration: 'none',
-                    fontWeight: 500,
-                  }}
-                >
-                  ↓ Download {customCharDef?.name || envType}_policy.json
-                </a>
-              )}
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                onChange={handleImportPlay}
-                style={{ display: 'none' }}
-              />
-              <button
-                className="btn btn-ghost"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
-                style={{ width: '100%', justifyContent: 'center' }}
-              >
-                ↑ Import &amp; Play
-              </button>
-
-              {isTerrainMode && (
-                <>
-                  <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-                  <button
-                    className="btn btn-ghost"
-                    onClick={debugMode ? handleStop : handlePhysicsDebug}
-                    disabled={isRunning && !debugMode}
-                    style={{
-                      width: '100%', justifyContent: 'center',
-                      color: debugMode ? 'var(--gold)' : undefined,
-                      borderColor: debugMode ? 'var(--gold-border)' : undefined,
-                    }}
-                  >
-                    {debugMode ? '■ Stop Debug' : '⚙ Physics Debug'}
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Playback diagnostic (visible after Import & Play) */}
-          {playbackDiag && (
-            <div className="panel">
-              <div className="panel-header">
-                <span>◎ playback diagnostic</span>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => {
-                    navigator.clipboard.writeText(JSON.stringify(playbackDiag, null, 2))
-                    alert('Diagnostic copied to clipboard — paste it to Claude for analysis')
-                  }}
-                  style={{ padding: '3px 8px', fontSize: 9 }}
-                >
-                  copy to clipboard
-                </button>
-              </div>
-              <div style={{ padding: '8px 12px', fontSize: 10, fontFamily: '"DM Mono", monospace', color: 'rgba(255,255,255,0.5)' }}>
-                <div>{playbackDiag.envType} · {playbackDiag.obsSize}D obs · {playbackDiag.actionSize}D act · {playbackDiag.steps.length} steps captured</div>
-                <div style={{ marginTop: 4 }}>
-                  ep1 reward: {playbackDiag.steps.reduce((s, d) => s + d.reward, 0).toFixed(1)}
-                  {' · '}
-                  {playbackDiag.steps[playbackDiag.steps.length - 1]?.done ? 'terminated' : 'ongoing'}
-                </div>
-                <details style={{ marginTop: 6 }}>
-                  <summary style={{ cursor: 'pointer', color: 'rgba(255,255,255,0.35)' }}>preview (first 5 steps)</summary>
-                  <pre style={{ marginTop: 4, fontSize: 9, maxHeight: 200, overflow: 'auto', color: 'rgba(255,255,255,0.4)', whiteSpace: 'pre-wrap' }}>
-                    {JSON.stringify(playbackDiag.steps.slice(0, 5), null, 2)}
-                  </pre>
-                </details>
-              </div>
-            </div>
-          )}
-
-          {/* Debug controls (visible when debug mode is active) */}
-          {debugMode && isTerrainMode && customCharDef && (
-            <div className="panel">
-              <div className="panel-header">
-                <span>⚙ joint tester</span>
-                <button
-                  className="btn btn-ghost"
-                  onClick={handleDebugReset}
-                  style={{ padding: '3px 8px', fontSize: 9 }}
-                >
-                  reset pose
-                </button>
-              </div>
-              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {/* Joint selector */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {(customCharDef.joints || []).map(j => (
-                    <button
-                      key={j.id}
-                      onClick={() => handleDebugJointChange(debugJoint === j.id ? null : j.id)}
-                      style={{
-                        flex: '1 1 auto',
-                        padding: '5px 8px',
-                        background: debugJoint === j.id ? 'var(--gold-dim)' : 'var(--surface)',
-                        border: `1px solid ${debugJoint === j.id ? 'var(--gold-border)' : 'var(--border)'}`,
-                        borderRadius: 5,
-                        color: debugJoint === j.id ? 'var(--gold)' : 'var(--text-dim)',
-                        fontFamily: '"DM Mono", monospace',
-                        fontSize: 10,
-                        cursor: 'pointer',
-                        letterSpacing: '0.03em',
-                      }}
-                    >
-                      {j.id}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Torque direction controls */}
-                {debugJoint && (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      className="btn"
-                      onMouseDown={() => handleDebugDirection(-1)}
-                      onMouseUp={() => handleDebugDirection(0)}
-                      onMouseLeave={() => handleDebugDirection(0)}
-                      style={{
-                        flex: 1, justifyContent: 'center', padding: '8px',
-                        background: debugDirection === -1 ? 'rgba(224,90,90,0.15)' : 'var(--surface)',
-                        color: debugDirection === -1 ? 'var(--red)' : 'var(--text-dim)',
-                        border: `1px solid ${debugDirection === -1 ? 'rgba(224,90,90,0.3)' : 'var(--border)'}`,
-                      }}
-                    >
-                      ← torque −
-                    </button>
-                    <button
-                      className="btn"
-                      onMouseDown={() => handleDebugDirection(1)}
-                      onMouseUp={() => handleDebugDirection(0)}
-                      onMouseLeave={() => handleDebugDirection(0)}
-                      style={{
-                        flex: 1, justifyContent: 'center', padding: '8px',
-                        background: debugDirection === 1 ? 'rgba(74,222,128,0.12)' : 'var(--surface)',
-                        color: debugDirection === 1 ? 'var(--green)' : 'var(--text-dim)',
-                        border: `1px solid ${debugDirection === 1 ? 'rgba(74,222,128,0.2)' : 'var(--border)'}`,
-                      }}
-                    >
-                      torque + →
-                    </button>
-                  </div>
-                )}
-
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', lineHeight: 1.5 }}>
-                  Select a joint, then hold torque buttons to test. Arcs show joint limits, line shows current angle.
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Creature Builder (terrain mode only) */}
-          {isTerrainMode && (
-            <div className="panel" style={{ flex: '2 1 280px' }}>
-              <div className="panel-header">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  ◧ creature builder
-                  <Tooltip text={TOOLTIPS.creatureBuilder} />
-                </span>
-                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
-                  {isRunning ? 'LOCKED' : 'EDIT'}
-                </span>
-              </div>
-              <div style={{ padding: '10px 12px' }}>
-                <CreatureBuilder
-                  onCreatureChange={setCustomCharDef}
-                  disabled={isRunning || trainingState === TRAINING_STATES.PAUSED}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Share panel (terrain mode only) */}
-          {isTerrainMode && (
-            <div className="panel">
-              <div className="panel-header">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  ⎘ share
-                  <Tooltip text={TOOLTIPS.share} />
-                </span>
-              </div>
-              <div style={{ padding: '10px 12px' }}>
-                <SharePanel
-                  charDef={customCharDef}
-                  exportUrl={exportUrl}
-                  bestDistance={bestDistance}
-                  bestReward={latestReward}
-                  onImportCreature={handleImportCreature}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Hyperparameters */}
-          {!isTerrainMode && (
-            <div className="panel" style={{ flex: 1 }}>
-              <div className="panel-header">
-                <span style={{ display: 'flex', alignItems: 'center' }}>
-                  ◧ hyperparameters
-                  <Tooltip text={TOOLTIPS.hyperparameters} />
-                </span>
-                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em' }}>
-                  {isRunning ? 'LOCKED' : 'EDIT BEFORE TRAIN'}
-                </span>
-              </div>
-              <div style={{ padding: '14px 16px', overflowY: 'auto' }}>
-                <HyperParams onChange={setPpoConfig} disabled={isRunning} overrides={ENV_CONFIGS[envType]?.ppoOverrides} />
-
-                {/* numEnvs — separate from PPO config */}
-                <div style={{ marginTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, fontFamily: '"DM Mono", monospace' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center' }}>
-                      Parallel Envs
-                      <Tooltip text={'Number of independent environment copies stepped each frame. More envs = more experience per policy update, better gradient estimates, and amortized GPU overhead.\n\nHigher values use more CPU (physics) and memory (one Rapier world per env). Watch the physics timing in the metrics bar — if it dominates, you\'ve hit the single-thread ceiling.'} />
-                    </span>
-                    <span style={{ fontSize: 13, color: '#e2b96f' }}>{numEnvs}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={1} max={64} step={1}
-                    value={numEnvs}
-                    disabled={isRunning}
-                    onChange={e => setNumEnvs(parseInt(e.target.value))}
-                    style={{
-                      width: '100%',
-                      accentColor: '#e2b96f',
-                      cursor: isRunning ? 'not-allowed' : 'pointer',
-                      opacity: isRunning ? 0.4 : 1,
-                      marginTop: 4,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Network info */}
-          <div className="panel">
-            <div className="panel-header">
-              <span style={{ display: 'flex', alignItems: 'center' }}>
-                ◫ network · {trainLabel}
-                <Tooltip text={TOOLTIPS.network} />
-              </span>
-            </div>
-            <div style={{ padding: '12px 14px', fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.8, fontFamily: '"DM Mono", monospace' }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                Actor: {networkDesc.actor}
-                <Tooltip text={TOOLTIPS.actor} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                Critic: same width → 1
-                <Tooltip text={TOOLTIPS.critic} />
-              </div>
-              <div style={{ marginTop: 6, color: 'rgba(255,255,255,0.45)', fontSize: 10, lineHeight: 1.6, display: 'flex', alignItems: 'center' }}>
-                obs: {networkDesc.obs}
-                <Tooltip text={TOOLTIPS.obs} />
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, display: 'flex', alignItems: 'center' }}>
-                act: {networkDesc.actions}
-                <Tooltip text={TOOLTIPS.act} />
-              </div>
-              {isTerrainMode && (
-                <div style={{ color: 'rgba(74,222,128,0.5)', fontSize: 9, marginTop: 4 }}>
-                  PD control: kp=300 kd=30 · 240Hz physics · 30Hz policy
-                </div>
-              )}
-            </div>
-          </div>
-
-        </div>
+        {/* Right sidebar overlay */}
+        <OverlaySidebar
+          tabs={sidebarTabs}
+          open={sidebarOpen}
+          onToggle={handleToggleSidebar}
+          activeTab={effectiveTab}
+          onTabChange={setActiveTab}
+          fullscreen={sidebarFullscreen}
+          onFullscreenToggle={handleToggleFullscreen}
+        />
       </div>
     </div>
   )
 }
+
+export { ENV_CONFIGS }

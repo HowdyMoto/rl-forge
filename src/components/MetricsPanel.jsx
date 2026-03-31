@@ -14,12 +14,12 @@ export default function MetricsPanel({ metrics, episodes, status, backend }) {
 
   const stat = (label, value, unit = '') => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center' }}>
+      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center' }}>
         {label}
         {STAT_TOOLTIPS[label] && <Tooltip text={STAT_TOOLTIPS[label]} />}
       </span>
       <span style={{ fontSize: 18, color: '#e2b96f', fontVariantNumeric: 'tabular-nums' }}>
-        {value}<span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginLeft: 2 }}>{unit}</span>
+        {value}<span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', marginLeft: 2 }}>{unit}</span>
       </span>
     </div>
   )
@@ -29,7 +29,7 @@ export default function MetricsPanel({ metrics, episodes, status, backend }) {
       display: 'grid',
       gridTemplateColumns: 'repeat(3, 1fr)',
       gap: '12px 20px',
-      fontFamily: '"DM Mono", monospace',
+      fontFamily: 'Inter, sans-serif',
     }}>
       {stat('Updates', latest?.update ?? '—')}
       {stat('Episodes', episodes)}
@@ -41,12 +41,12 @@ export default function MetricsPanel({ metrics, episodes, status, backend }) {
       {stat('Entropy', latest?.entropy != null ? latest.entropy.toFixed(3) : '—')}
 
       {latest?.timing && (
-        <div style={{ gridColumn: '1 / -1', marginTop: 4, display: 'flex', gap: 12, fontSize: 10, color: 'rgba(255,255,255,0.40)', fontFamily: '"DM Mono", monospace' }}>
+        <div style={{ gridColumn: '1 / -1', marginTop: 4, display: 'flex', gap: 12, fontSize: 10, color: 'rgba(255,255,255,0.7)', fontFamily: 'Inter, sans-serif' }}>
           <span style={{ color: '#e2b96f' }}>{latest.timing.stepsPerSec.toLocaleString()} steps/s</span>
-          {latest.timing.numEnvs > 1 && <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.numEnvs} envs</span>}
-          <span>inference <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.inferenceMs}ms</span></span>
-          <span>physics <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.physicsMs}ms</span></span>
-          <span>update <span style={{ color: 'rgba(255,255,255,0.6)' }}>{latest.timing.updateMs}ms</span></span>
+          {latest.timing.numEnvs > 1 && <span style={{ color: 'rgba(255,255,255,0.8)' }}>{latest.timing.numEnvs} envs</span>}
+          <span>inference <span style={{ color: 'rgba(255,255,255,0.8)' }}>{latest.timing.inferenceMs}ms</span></span>
+          <span>physics <span style={{ color: 'rgba(255,255,255,0.8)' }}>{latest.timing.physicsMs}ms</span></span>
+          <span>update <span style={{ color: 'rgba(255,255,255,0.8)' }}>{latest.timing.updateMs}ms</span></span>
         </div>
       )}
 
@@ -59,7 +59,7 @@ export default function MetricsPanel({ metrics, episodes, status, backend }) {
           boxShadow: status === 'Training started' || status === 'Resumed'
             ? '0 0 6px #4ade80' : 'none'
         }} />
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)' }}>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
           {status || 'idle'} {backend ? `· ${backend}` : ''}
         </span>
       </div>

@@ -305,7 +305,7 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
 
     if (!snapshot) {
       ctx.fillStyle = 'rgba(255,255,255,0.1)'
-      ctx.font = '500 13px "DM Mono", monospace'
+      ctx.font = '500 13px Inter, sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText('Build a creature, then press TRAIN', W / 2, H / 2)
       return
@@ -384,9 +384,9 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
     }
 
     // HUD
-    ctx.font = '500 10px "DM Mono", monospace'
+    ctx.font = '500 10px Inter, sans-serif'
     ctx.textAlign = 'left'
-    ctx.fillStyle = 'rgba(255,255,255,0.35)'
+    ctx.fillStyle = 'rgba(255,255,255,0.65)'
 
     if (torsoSnap) {
       ctx.fillText(`dist ${torsoSnap.x.toFixed(1)}m`, 12, H - 42)
@@ -404,7 +404,7 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
     if (torsoSnap) {
       ctx.textAlign = 'right'
       ctx.fillStyle = 'var(--gold)'
-      ctx.font = '600 11px "DM Mono", monospace'
+      ctx.font = '600 11px Inter, sans-serif'
       ctx.fillStyle = '#e2b96f'
       ctx.fillText(`${torsoSnap.x.toFixed(1)}m`, W - 12, H - 28)
     }
@@ -413,15 +413,15 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
     const debug = snapshot?._debug
     if (debug && charDef) {
       // Body labels
-      ctx.font = '500 9px "DM Mono", monospace'
+      ctx.font = '500 9px Inter, sans-serif'
       ctx.textAlign = 'center'
       for (const bl of (debug.bodyLabels || [])) {
         const t = snapshot[bl.id]
         if (!t) continue
         const { sx, sy } = ws(t.x, t.y)
-        ctx.fillStyle = 'rgba(255,255,255,0.5)'
+        ctx.fillStyle = 'rgba(255,255,255,0.75)'
         ctx.fillText(bl.id, sx, sy - 18)
-        ctx.fillStyle = 'rgba(255,255,255,0.25)'
+        ctx.fillStyle = 'rgba(255,255,255,0.55)'
         ctx.fillText(`${bl.mass}kg`, sx, sy - 8)
       }
 
@@ -465,7 +465,7 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
           ctx.beginPath()
           ctx.moveTo(sx + innerR * Math.cos(screenAngle), sy + innerR * Math.sin(screenAngle))
           ctx.lineTo(sx + outerR * Math.cos(screenAngle), sy + outerR * Math.sin(screenAngle))
-          ctx.strokeStyle = isActive ? 'rgba(226,185,111,0.6)' : 'rgba(255,255,255,0.25)'
+          ctx.strokeStyle = isActive ? 'rgba(226,185,111,0.6)' : 'rgba(255,255,255,0.55)'
           ctx.lineWidth = 1.5
           ctx.stroke()
         }
@@ -494,9 +494,9 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
         const angleDeg = (jDebug.angle * 180 / Math.PI).toFixed(0)
         const lowerDeg = (jDebug.lower * 180 / Math.PI).toFixed(0)
         const upperDeg = (jDebug.upper * 180 / Math.PI).toFixed(0)
-        ctx.font = '500 8px "DM Mono", monospace'
+        ctx.font = '500 8px Inter, sans-serif'
         ctx.textAlign = 'left'
-        ctx.fillStyle = isActive ? 'rgba(226,185,111,0.8)' : 'rgba(255,255,255,0.3)'
+        ctx.fillStyle = isActive ? 'rgba(226,185,111,0.8)' : 'rgba(255,255,255,0.6)'
         ctx.fillText(`${angleDeg}° [${lowerDeg},${upperDeg}]`, sx + arcRadius + 10, sy - 2)
         if (isActive) {
           ctx.fillStyle = 'rgba(226,185,111,0.5)'
@@ -561,14 +561,14 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
       }
 
       // Debug mode label
-      ctx.font = '600 11px "DM Mono", monospace'
+      ctx.font = '600 11px Inter, sans-serif'
       ctx.textAlign = 'center'
       ctx.fillStyle = 'rgba(226,185,111,0.6)'
       ctx.fillText('PHYSICS DEBUG', W / 2, 20)
       const debugLabel = drag.active ? `dragging: ${drag.bodyId}`
         : debug.activeJoint ? `testing: ${debug.activeJoint}`
         : 'click body to drag'
-      ctx.font = '500 10px "DM Mono", monospace'
+      ctx.font = '500 10px Inter, sans-serif'
       ctx.fillStyle = 'rgba(226,185,111,0.4)'
       ctx.fillText(debugLabel, W / 2, 34)
     }
@@ -603,12 +603,12 @@ export default function TerrainRenderer({ snapshot, charDef, episodeReward, epis
 
         // Main label
         ctx.textAlign = 'center'
-        ctx.font = '600 12px "DM Mono", monospace'
+        ctx.font = '600 12px Inter, sans-serif'
         ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha})`
         ctx.fillText(`${label} \u2014 ${detail}`, W / 2, pillY + 18)
 
         // Episode summary
-        ctx.font = '500 10px "DM Mono", monospace'
+        ctx.font = '500 10px Inter, sans-serif'
         ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.6})`
         ctx.fillText(`r ${resetEvent.reward.toFixed(1)}  \u00b7  ${resetEvent.steps} steps`, W / 2, pillY + 34)
       }

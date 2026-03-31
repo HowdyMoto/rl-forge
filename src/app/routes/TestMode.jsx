@@ -251,7 +251,7 @@ export default function TestMode() {
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {charDef && (
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: '"DM Mono", monospace' }}>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter, sans-serif' }}>
             {charDef.name || 'unnamed'} · {charDef.bodies?.length || 0} bodies · {charDef.joints?.length || 0} joints · {totalMass.toFixed(1)}kg
           </span>
         )}
@@ -366,11 +366,11 @@ export default function TestMode() {
 
                 {/* Body states */}
                 <div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
                     Bodies
                   </div>
                   {Object.entries(measurements.bodies).map(([id, b]) => (
-                    <div key={id} style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontFamily: '"DM Mono", monospace', lineHeight: 1.8 }}>
+                    <div key={id} style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter, sans-serif', lineHeight: 1.8 }}>
                       <span style={{ color: 'var(--gold)' }}>{id}</span>
                       {' '}x:{b.x.toFixed(2)} y:{b.y.toFixed(2)} θ:{(b.angle * 180 / Math.PI).toFixed(1)}° m:{b.mass}kg
                     </div>
@@ -379,11 +379,11 @@ export default function TestMode() {
 
                 {/* Joint states */}
                 <div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
                     Joints
                   </div>
                   {Object.entries(measurements.joints).map(([id, j]) => (
-                    <div key={id} style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontFamily: '"DM Mono", monospace', lineHeight: 1.8 }}>
+                    <div key={id} style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontFamily: 'Inter, sans-serif', lineHeight: 1.8 }}>
                       <span style={{ color: j.type === 'prismatic' ? '#66aaff' : '#ff9966' }}>{id}</span>
                       {j.type === 'prismatic' ? (
                         <>{' '}pos:{j.translation?.toFixed(3)}m [{j.lower?.toFixed(2)}, {j.upper?.toFixed(2)}]</>
@@ -398,7 +398,7 @@ export default function TestMode() {
                   {/* Foot contacts */}
                   {Object.keys(measurements.footContacts).length > 0 && (
                     <div style={{ marginTop: 6 }}>
-                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
+                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
                         Contacts
                       </div>
                       {Object.entries(measurements.footContacts).map(([id, contact]) => (
@@ -407,9 +407,9 @@ export default function TestMode() {
                           padding: '2px 6px',
                           marginRight: 4,
                           fontSize: 9,
-                          fontFamily: '"DM Mono", monospace',
+                          fontFamily: 'Inter, sans-serif',
                           background: contact ? 'rgba(74,222,128,0.12)' : 'rgba(255,255,255,0.03)',
-                          color: contact ? 'var(--green)' : 'rgba(255,255,255,0.25)',
+                          color: contact ? 'var(--green)' : 'rgba(255,255,255,0.55)',
                           border: `1px solid ${contact ? 'rgba(74,222,128,0.2)' : 'rgba(255,255,255,0.06)'}`,
                           borderRadius: 4,
                         }}>
@@ -427,7 +427,7 @@ export default function TestMode() {
           {isRunning && measurements?.obs && showOverlay && (
             <div className="panel">
               <div className="panel-header">◎ observation vector ({measurements.obs.length}D)</div>
-              <div style={{ padding: '8px 14px', fontFamily: '"DM Mono", monospace', fontSize: 10, lineHeight: 1.8 }}>
+              <div style={{ padding: '8px 14px', fontFamily: 'Inter, sans-serif', fontSize: 10, lineHeight: 1.8 }}>
                 {(() => {
                   const obs = measurements.obs
                   const labels = []
@@ -475,12 +475,12 @@ export default function TestMode() {
 
                   return labels.map(({ i, label, desc }) => (
                     <div key={i} style={{ display: 'flex', gap: 8, color: 'rgba(255,255,255,0.55)' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.25)', width: 20, textAlign: 'right' }}>[{i}]</span>
+                      <span style={{ color: 'rgba(255,255,255,0.55)', width: 20, textAlign: 'right' }}>[{i}]</span>
                       <span style={{ color: 'var(--gold)', width: 90, overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
                       <span style={{ width: 70, textAlign: 'right' }}>
                         {obs[i] !== undefined ? obs[i].toFixed(4) : '—'}
                       </span>
-                      <span style={{ color: 'rgba(255,255,255,0.2)' }}>{desc}</span>
+                      <span style={{ color: 'rgba(255,255,255,0.55)' }}>{desc}</span>
                     </div>
                   ))
                 })()}
@@ -492,14 +492,14 @@ export default function TestMode() {
           {isRunning && measurements?.rewardBreakdown && showOverlay && (
             <div className="panel">
               <div className="panel-header">◎ reward breakdown (per step)</div>
-              <div style={{ padding: '10px 14px', fontFamily: '"DM Mono", monospace', fontSize: 10 }}>
+              <div style={{ padding: '10px 14px', fontFamily: 'Inter, sans-serif', fontSize: 10 }}>
                 {measurements.rewardBreakdown.components.map((c, i) => {
                   const maxBar = 1.5 // scale: 1.5 maps to full bar width
                   const barPct = Math.min(100, Math.abs(c.value) / maxBar * 100)
                   const isPositive = c.value >= 0
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <span style={{ width: 100, color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{c.label}</span>
+                      <span style={{ width: 100, color: 'rgba(255,255,255,0.75)', flexShrink: 0 }}>{c.label}</span>
                       <div style={{
                         flex: 1,
                         height: 14,
@@ -552,7 +552,7 @@ export default function TestMode() {
                   </span>
                 </div>
                 {/* Health status */}
-                <div style={{ marginTop: 6, fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>
+                <div style={{ marginTop: 6, fontSize: 9, color: 'rgba(255,255,255,0.6)' }}>
                   {measurements.rewardBreakdown.healthy
                     ? <span style={{ color: '#4ade80' }}>healthy</span>
                     : <span style={{ color: '#f87171' }}>terminated</span>
@@ -577,9 +577,9 @@ export default function TestMode() {
 
                 {/* Bodies table */}
                 <div style={{ marginTop: 12 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, fontFamily: '"DM Mono", monospace' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, fontFamily: 'Inter, sans-serif' }}>
                     <thead>
-                      <tr style={{ color: 'rgba(255,255,255,0.35)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                      <tr style={{ color: 'rgba(255,255,255,0.65)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                         <th style={{ padding: '4px 6px' }}>id</th>
                         <th style={{ padding: '4px 6px' }}>shape</th>
                         <th style={{ padding: '4px 6px' }}>size</th>
@@ -591,7 +591,7 @@ export default function TestMode() {
                     <tbody>
                       {(charDef.bodies || []).map(b => (
                         <tr key={b.id} style={{ color: 'rgba(255,255,255,0.55)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ padding: '4px 6px', color: b.fixed ? 'rgba(255,255,255,0.25)' : 'var(--gold)' }}>
+                          <td style={{ padding: '4px 6px', color: b.fixed ? 'rgba(255,255,255,0.55)' : 'var(--gold)' }}>
                             {b.id}{b.fixed ? ' (fixed)' : ''}{b.isFootBody ? ' (foot)' : ''}
                           </td>
                           <td style={{ padding: '4px 6px' }}>{b.shape}</td>
@@ -610,9 +610,9 @@ export default function TestMode() {
                 {/* Joints table */}
                 {charDef.joints?.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, fontFamily: '"DM Mono", monospace' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, fontFamily: 'Inter, sans-serif' }}>
                       <thead>
-                        <tr style={{ color: 'rgba(255,255,255,0.35)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                        <tr style={{ color: 'rgba(255,255,255,0.65)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                           <th style={{ padding: '4px 6px' }}>id</th>
                           <th style={{ padding: '4px 6px' }}>type</th>
                           <th style={{ padding: '4px 6px' }}>bodies</th>
@@ -676,7 +676,7 @@ export default function TestMode() {
                   >
                     <span style={{
                       fontSize: 11,
-                      color: result === 'pass' ? 'var(--green)' : result === 'fail' ? 'var(--red)' : 'rgba(255,255,255,0.25)',
+                      color: result === 'pass' ? 'var(--green)' : result === 'fail' ? 'var(--red)' : 'rgba(255,255,255,0.55)',
                       width: 16,
                       flexShrink: 0,
                     }}>
@@ -685,14 +685,14 @@ export default function TestMode() {
                     <div>
                       <div style={{
                         fontSize: 11,
-                        fontFamily: '"DM Mono", monospace',
+                        fontFamily: 'Inter, sans-serif',
                         color: selectedTest === test.id ? '#fff' : 'rgba(255,255,255,0.6)',
                         letterSpacing: '0.03em',
                       }}>
                         {test.label}
                       </div>
                       {selectedTest === test.id && (
-                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 3, lineHeight: 1.4 }}>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', marginTop: 3, lineHeight: 1.4 }}>
                           {test.desc}
                         </div>
                       )}
@@ -726,7 +726,7 @@ export default function TestMode() {
                         border: `1px solid ${selectedJoint === j.id ? 'var(--gold-border)' : 'var(--border)'}`,
                         borderRadius: 5,
                         color: selectedJoint === j.id ? 'var(--gold)' : 'var(--text-dim)',
-                        fontFamily: '"DM Mono", monospace',
+                        fontFamily: 'Inter, sans-serif',
                         fontSize: 10,
                         cursor: 'pointer',
                       }}
@@ -811,12 +811,12 @@ export default function TestMode() {
                               </div>
                               <span style={{
                                 fontSize: 9,
-                                fontFamily: '"DM Mono", monospace',
+                                fontFamily: 'Inter, sans-serif',
                                 color: torqueDirection > 0 ? 'var(--green)' : 'var(--red)',
                               }}>
                                 {torqueDirection > 0 ? '+' : ''}{(torqueDirection * 100).toFixed(0)}% {label}
                               </span>
-                              <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', marginLeft: 6 }}>
+                              <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.55)', marginLeft: 6 }}>
                                 drag left/right to adjust
                               </span>
                             </div>
@@ -836,13 +836,13 @@ export default function TestMode() {
                           background: 'rgba(255,255,255,0.02)',
                           borderRadius: 6,
                           fontSize: 10,
-                          fontFamily: '"DM Mono", monospace',
-                          color: 'rgba(255,255,255,0.5)',
+                          fontFamily: 'Inter, sans-serif',
+                          color: 'rgba(255,255,255,0.75)',
                           lineHeight: 1.8,
                         }}>
                           {(jDef?.maxTorque ?? 0) === 0 && (
                             <div style={{
-                              color: 'rgba(255,255,255,0.35)',
+                              color: 'rgba(255,255,255,0.65)',
                               fontStyle: 'italic',
                               marginBottom: 4,
                               padding: '3px 6px',
@@ -875,7 +875,7 @@ export default function TestMode() {
                   </>
                 )}
 
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>
                   Select a joint then hold torque buttons. You can also grab and drag body parts with the mouse.
                 </div>
               </div>
@@ -903,10 +903,10 @@ export default function TestMode() {
 function Stat({ label, value }) {
   return (
     <div>
-      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>
+      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>
         {label}
       </div>
-      <div style={{ fontSize: 14, fontFamily: '"DM Mono", monospace', color: '#fff', fontWeight: 500 }}>
+      <div style={{ fontSize: 14, fontFamily: 'Inter, sans-serif', color: '#fff', fontWeight: 500 }}>
         {value}
       </div>
     </div>

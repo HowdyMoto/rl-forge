@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, ReferenceLine, CartesianGrid,
+  ResponsiveContainer, ReferenceLine, CartesianGrid, Brush,
 } from 'recharts'
 import InfoTooltip from './Tooltip.jsx'
 import RewardBreakdownChart from './RewardBreakdownChart.jsx'
@@ -34,9 +34,9 @@ const MiniTooltip = ({ active, payload, label }) => {
       borderRadius: 5,
       padding: '6px 10px',
       fontSize: 10,
-      fontFamily: '"DM Mono", monospace',
+      fontFamily: 'Inter, sans-serif',
     }}>
-      <div style={{ color: 'rgba(255,255,255,0.35)', marginBottom: 2 }}>update {label}</div>
+      <div style={{ color: 'rgba(255,255,255,0.65)', marginBottom: 2 }}>update {label}</div>
       {payload.map(p => (
         <div key={p.dataKey} style={{ color: p.color }}>
           {typeof p.value === 'number' ? p.value.toFixed(4) : p.value}
@@ -52,7 +52,7 @@ function SmallChart({ data, dataKey, label, color, solvedThreshold }) {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         height: '100%', color: 'rgba(255,255,255,0.12)',
-        fontFamily: '"DM Mono", monospace', fontSize: 10,
+        fontFamily: 'Inter, sans-serif', fontSize: 10,
       }}>
         waiting...
       </div>
@@ -72,12 +72,12 @@ function SmallChart({ data, dataKey, label, color, solvedThreshold }) {
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
         <XAxis
           dataKey="update"
-          tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: '"DM Mono", monospace' }}
+          tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 9, fontFamily: 'Inter, sans-serif' }}
           tickLine={false}
           axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
         />
         <YAxis
-          tick={{ fill: 'rgba(255,255,255,0.2)', fontSize: 9, fontFamily: '"DM Mono", monospace' }}
+          tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 9, fontFamily: 'Inter, sans-serif' }}
           tickLine={false}
           axisLine={false}
           domain={[domainMin, domainMax]}
@@ -90,7 +90,7 @@ function SmallChart({ data, dataKey, label, color, solvedThreshold }) {
             y={solvedThreshold}
             stroke="rgba(100,255,150,0.2)"
             strokeDasharray="4 4"
-            label={{ value: 'target', fill: 'rgba(100,255,150,0.3)', fontSize: 9, fontFamily: '"DM Mono", monospace' }}
+            label={{ value: 'target', fill: 'rgba(100,255,150,0.3)', fontSize: 9, fontFamily: 'Inter, sans-serif' }}
           />
         )}
         <Line
@@ -102,6 +102,14 @@ function SmallChart({ data, dataKey, label, color, solvedThreshold }) {
           dot={false}
           activeDot={{ r: 2, fill: color }}
           isAnimationActive={false}
+        />
+        <Brush
+          dataKey="update"
+          height={18}
+          stroke="rgba(255,255,255,0.15)"
+          fill="#0a0a14"
+          travellerWidth={8}
+          tickFormatter={() => ''}
         />
       </LineChart>
     </ResponsiveContainer>
@@ -133,8 +141,8 @@ export default function TrainingCharts({ metrics, solvedThreshold }) {
         <div key={key} style={{ background: '#07070f', position: 'relative', minHeight: 0 }}>
           <div style={{
             position: 'absolute', top: 6, left: 10, zIndex: 1,
-            fontSize: 9, color: 'rgba(255,255,255,0.25)',
-            fontFamily: '"DM Mono", monospace',
+            fontSize: 9, color: 'rgba(255,255,255,0.55)',
+            fontFamily: 'Inter, sans-serif',
             letterSpacing: '0.06em', textTransform: 'uppercase',
             display: 'flex', alignItems: 'center',
           }}>

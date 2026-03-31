@@ -275,8 +275,8 @@ function drawPreview(ctx, W, H, parts, connections, selectedId) {
     ctx.restore()
 
     // Label
-    ctx.fillStyle = isSelected ? '#fff' : 'rgba(255,255,255,0.4)'
-    ctx.font = '9px "DM Mono", monospace'
+    ctx.fillStyle = isSelected ? '#fff' : 'rgba(255,255,255,0.7)'
+    ctx.font = '9px Inter, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText(part.id, sx, sy - ((part.h || part.length || 0.2) * PREVIEW_SCALE / 2 + 10))
   }
@@ -381,7 +381,7 @@ export default function CreatureBuilder({ onCreatureChange, disabled }) {
               border: `1px solid ${selectedPreset === key ? 'var(--gold-border)' : 'var(--border)'}`,
               borderRadius: 5,
               color: selectedPreset === key ? 'var(--gold)' : 'var(--text-dim)',
-              fontFamily: '"DM Mono", monospace',
+              fontFamily: 'Inter, sans-serif',
               fontSize: 10,
               cursor: disabled ? 'not-allowed' : 'pointer',
               textAlign: 'center',
@@ -416,7 +416,7 @@ export default function CreatureBuilder({ onCreatureChange, disabled }) {
           border: '1px solid var(--border)',
           borderRadius: 6,
           fontSize: 10,
-          fontFamily: '"DM Mono", monospace',
+          fontFamily: 'Inter, sans-serif',
         }}>
           <div style={{ color: 'var(--gold)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             {selectedPartData.id} ({selectedPartData.type})
@@ -496,7 +496,7 @@ export default function CreatureBuilder({ onCreatureChange, disabled }) {
             border: '1px solid var(--border)',
             borderRadius: 4,
             color: 'var(--gold)',
-            fontFamily: '"DM Mono", monospace',
+            fontFamily: 'Inter, sans-serif',
             fontSize: 11,
             padding: '4px 8px',
             outline: 'none',
@@ -507,7 +507,7 @@ export default function CreatureBuilder({ onCreatureChange, disabled }) {
       {/* Stats */}
       <div style={{
         display: 'flex', gap: 12, fontSize: 9,
-        color: 'rgba(255,255,255,0.4)', fontFamily: '"DM Mono", monospace',
+        color: 'rgba(255,255,255,0.7)', fontFamily: 'Inter, sans-serif',
       }}>
         <span>{parts.length} bodies</span>
         <span>{connections.length} joints</span>

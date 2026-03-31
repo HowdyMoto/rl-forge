@@ -42,6 +42,7 @@ const CHAR_LOADERS = {
   acrobot: () => import('../env/characters/acrobot.js').then(m => m.ACROBOT),
   'acrobot-damped': () => import('../env/characters/acrobot_damped.js').then(m => m.ACROBOT_DAMPED),
   terrain: () => import('../env/characters/biped.js').then(m => m.BIPED),
+  pendulum: () => import('../env/characters/pendulum.js').then(m => m.PENDULUM),
   'spinner-constant': () => import('../env/characters/spinner_constant.js').then(m => m.SPINNER_CONSTANT),
   'spinner-max': () => import('../env/characters/spinner_max.js').then(m => m.SPINNER_MAX),
   'red-light-green-light': () => import('../env/characters/red_light_green_light.js').then(m => m.RED_LIGHT_GREEN_LIGHT),
@@ -73,6 +74,17 @@ function getEnvOpts(envType, charDef) {
       policyHz: 30,
       gravity: 0,
       maxSteps: 1000,
+    }
+  }
+
+  // Pendulum: velocity control with gravity, 200-step episodes (matches Gym)
+  if (envType === 'pendulum') {
+    return {
+      controlMode: 'velocity',
+      physicsHz: 240,
+      policyHz: 30,
+      gravity: -9.8,
+      maxSteps: 200,
     }
   }
 

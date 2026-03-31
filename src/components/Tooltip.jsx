@@ -36,7 +36,7 @@ export default function Tooltip({ text }) {
         onKeyDown={onKeyDown}
         style={{
           cursor: 'help',
-          color: 'rgba(255,255,255,0.2)',
+          color: 'rgba(255,255,255,0.55)',
           fontSize: 9,
           marginLeft: 5,
           lineHeight: 1,
@@ -65,7 +65,7 @@ export default function Tooltip({ text }) {
             fontSize: 10,
             lineHeight: 1.6,
             color: 'rgba(255,255,255,0.65)',
-            fontFamily: '"DM Mono", monospace',
+            fontFamily: 'Inter, sans-serif',
             letterSpacing: '0.02em',
             textTransform: 'none',
             zIndex: 9999,
@@ -83,7 +83,7 @@ export default function Tooltip({ text }) {
                   margin: '7px 0',
                 }} />
               )}
-              <span style={{ display: 'block', color: i === 0 ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.4)' }}>
+              <span style={{ display: 'block', color: i === 0 ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.7)' }}>
                 {p}
               </span>
             </span>

@@ -21,7 +21,7 @@ const S = {
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255,255,255,0.75)',
     userSelect: 'none',
     borderRadius: 4,
   },
@@ -30,7 +30,7 @@ const S = {
     width: 12,
     textAlign: 'center',
     transition: 'transform 0.15s ease',
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.6)',
   },
   node: {
     display: 'flex',
@@ -39,7 +39,7 @@ const S = {
     padding: '3px 8px 3px 26px',
     cursor: 'pointer',
     fontSize: 11,
-    fontFamily: "'DM Mono', monospace",
+    fontFamily: "Inter, sans-serif",
     borderRadius: 4,
     transition: 'background 0.1s ease',
     userSelect: 'none',
@@ -51,7 +51,7 @@ const S = {
     flexShrink: 0,
   },
   nodeDetail: {
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.65)',
     fontSize: 10,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -65,7 +65,7 @@ const S = {
   count: {
     marginLeft: 'auto',
     fontSize: 9,
-    color: 'rgba(255,255,255,0.25)',
+    color: 'rgba(255,255,255,0.55)',
   },
 }
 
@@ -126,7 +126,7 @@ const TreeNode = memo(function TreeNode({ id, type, selected, onSelect, children
 // ── Main tree ────────────────────────────────────────────────────────────
 
 export default function SceneHierarchyTree({ charDef, snapshot, selectedId, selectedType, onSelect }) {
-  if (!charDef) return <div style={{ padding: 12, color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>No scene loaded</div>
+  if (!charDef) return <div style={{ padding: 12, color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>No scene loaded</div>
 
   const bodies = charDef.bodies || []
   const joints = charDef.joints || []
@@ -168,7 +168,7 @@ export default function SceneHierarchyTree({ charDef, snapshot, selectedId, sele
             >
               <span style={S.nodeId}>{b.id}</span>
               {b.fixed && (
-                <span style={{ ...S.badge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)' }}>
+                <span style={{ ...S.badge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}>
                   fixed
                 </span>
               )}
@@ -231,7 +231,7 @@ export default function SceneHierarchyTree({ charDef, snapshot, selectedId, sele
                 <span style={{
                   ...S.badge,
                   background: on ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.05)',
-                  color: on ? '#4ade80' : 'rgba(255,255,255,0.3)',
+                  color: on ? '#4ade80' : 'rgba(255,255,255,0.6)',
                 }}>
                   {on ? 'ON' : 'off'}
                 </span>

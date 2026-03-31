@@ -450,8 +450,10 @@ export class UnifiedRapierEnv {
         // Revolute joints: velocity motor (standard for locomotion)
         const joint = this.joints[jointDef.id]
         const targetVel = action * (jointDef.maxVelocity ?? 8.0)
-        joint.configureMotorVelocity(targetVel, jointDef.damping ?? 5.0)
-        joint.configureMotorMaxForce(jointDef.maxTorque ?? 300)
+        const damping = jointDef.damping ?? 5.0
+        // configureMotor(targetPos, targetVel, stiffness, damping)
+        // stiffness=0 makes it a pure velocity motor; damping acts as max force factor
+        joint.configureMotor(0, targetVel, 0, damping)
       }
     })
 

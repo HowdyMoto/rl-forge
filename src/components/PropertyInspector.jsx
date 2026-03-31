@@ -15,13 +15,13 @@ const S = {
     borderTop: '1px solid rgba(255,255,255,0.07)',
     padding: '8px 10px',
     fontSize: 11,
-    fontFamily: "'DM Mono', monospace",
+    fontFamily: "Inter, sans-serif",
   },
   header: {
     fontSize: 10,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255,255,255,0.75)',
     marginBottom: 6,
     display: 'flex',
     alignItems: 'center',
@@ -37,7 +37,7 @@ const S = {
   },
   sectionLabel: {
     fontSize: 9,
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.6)',
     textTransform: 'uppercase',
     letterSpacing: '0.1em',
     marginBottom: 3,
@@ -50,7 +50,7 @@ const S = {
     gap: 8,
   },
   label: {
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.75)',
     fontSize: 10,
     flexShrink: 0,
     minWidth: 60,
@@ -66,7 +66,7 @@ const S = {
     borderRadius: 4,
     color: '#e0e0e8',
     fontSize: 10,
-    fontFamily: "'DM Mono', monospace",
+    fontFamily: "Inter, sans-serif",
     padding: '2px 6px',
     width: 72,
     textAlign: 'right',
@@ -188,7 +188,7 @@ export default function PropertyInspector({ selectedId, selectedType, charDef, s
       <div style={S.container}>
         <div style={S.header}>
           <span>Ground</span>
-          <span style={{ ...S.typeBadge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)' }}>static</span>
+          <span style={{ ...S.typeBadge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.75)' }}>static</span>
         </div>
         <ReadOnlyRow label="y" value={fmtNum(g.y, 2)} />
         <ReadOnlyRow label="friction" value={fmtNum(g.friction, 2)} />
@@ -214,7 +214,7 @@ export default function PropertyInspector({ selectedId, selectedType, charDef, s
         <div style={S.header}>
           <span>{selectedId}</span>
           <span style={{ ...S.typeBadge, background: 'rgba(226,185,111,0.12)', color: '#e2b96f' }}>body</span>
-          {bodyDef.fixed && <span style={{ ...S.typeBadge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)' }}>fixed</span>}
+          {bodyDef.fixed && <span style={{ ...S.typeBadge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}>fixed</span>}
         </div>
 
         <div style={S.section}>
@@ -301,7 +301,7 @@ export default function PropertyInspector({ selectedId, selectedType, charDef, s
       <div style={S.container}>
         <div style={S.header}>
           <span>{selectedId}</span>
-          <span style={{ ...S.typeBadge, background: on ? 'rgba(74,222,128,0.12)' : 'rgba(255,255,255,0.08)', color: on ? '#4ade80' : 'rgba(255,255,255,0.4)' }}>
+          <span style={{ ...S.typeBadge, background: on ? 'rgba(74,222,128,0.12)' : 'rgba(255,255,255,0.08)', color: on ? '#4ade80' : 'rgba(255,255,255,0.7)' }}>
             {on ? 'contact' : 'no contact'}
           </span>
         </div>

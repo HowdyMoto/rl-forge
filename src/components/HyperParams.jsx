@@ -62,7 +62,7 @@ export default function HyperParams({ onChange, disabled, overrides }) {
   }
 
   return (
-    <div style={{ fontFamily: '"DM Mono", monospace', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ fontFamily: 'Inter, sans-serif', display: 'flex', flexDirection: 'column', gap: 10 }}>
       {PARAM_META.map(({ key, label, min, max, step, fmt, tooltip }) => (
         <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
