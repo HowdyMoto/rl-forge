@@ -2,25 +2,19 @@
  * Hopper character definition.
  *
  * A monopod (single-leg) hopper: torso → thigh → shin → foot.
- * Modeled after MuJoCo's classic Hopper-v4 but scaled for 2D Rapier.
- *
- * Coordinate system: +x = right (forward), +y = up
- * All sizes in meters, masses in kg, angles in radians.
- *
- * The character JSON format is the shared representation between:
- *   - The authoring canvas (M2 future)
- *   - RapierEnv (builds the simulation from this)
- *   - MJCF exporter (future)
+ * Now calibrated to match the terrain biped's physics parameters
+ * (PD control, 240Hz, lower gravity, strong torques) which successfully
+ * learn locomotion in this engine.
  */
 
 export const HOPPER = {
   name: 'hopper',
   gravityScale: 1.0,
+  gravity: -5.5,       // match terrain mode — gentler than -9.81
 
-  // Static ground collider config (not a body, just the floor)
   ground: {
     y: 0.0,
-    friction: 0.8,
+    friction: 0.9,     // match terrain biped foot friction
     restitution: 0.1,
   },
 
@@ -36,8 +30,8 @@ export const HOPPER = {
       spawnX: 0.0,
       spawnY: 1.45,
       spawnAngle: 0.0,
-      minY: 0.5,
-      maxAngle: 0.8,   // ~46 degrees — relaxed so the agent can learn recovery
+      minY: 0.4,
+      maxAngle: 1.0,    // ~57° — match terrain biped tolerance
     },
     {
       id: 'thigh',
@@ -69,7 +63,7 @@ export const HOPPER = {
       w: 0.16,
       h: 0.06,
       mass: 0.2,
-      friction: 0.8,
+      friction: 0.9,     // high friction foot
       restitution: 0.0,
       spawnX: 0.0,
       spawnY: 0.23,
@@ -83,40 +77,43 @@ export const HOPPER = {
       id: 'hip',
       bodyA: 'torso',
       bodyB: 'thigh',
-      anchorA: [0.0, -0.225],   // bottom of torso
-      anchorB: [0.0,  0.175],   // top of thigh
-      lowerLimit: -0.698,  // -40°
-      upperLimit:  0.698,  //  40°
+      anchorA: [0.0, -0.225],
+      anchorB: [0.0,  0.175],
+      lowerLimit: -1.5,   // -86° — match terrain biped range
+      upperLimit:  1.2,   //  69°
       restAngle: 0,
-      maxTorque: 80.0,
-      kp: 80,
-      kd: 8,
+      maxTorque: 300.0,
+      kp: 300,
+      kd: 30,
+      damping: 5.0,
     },
     {
       id: 'knee',
       bodyA: 'thigh',
       bodyB: 'shin',
-      anchorA: [0.0, -0.175],   // bottom of thigh
-      anchorB: [0.0,  0.150],   // top of shin
-      lowerLimit: -1.396,  // -80°
-      upperLimit:  0.0,    //   0°
+      anchorA: [0.0, -0.175],
+      anchorB: [0.0,  0.150],
+      lowerLimit: -2.4,   // -137° — deep squat allowed
+      upperLimit:  0.05,
       restAngle: -0.3,
-      maxTorque: 80.0,
-      kp: 80,
-      kd: 8,
+      maxTorque: 300.0,
+      kp: 300,
+      kd: 30,
+      damping: 5.0,
     },
     {
       id: 'ankle',
       bodyA: 'shin',
       bodyB: 'foot',
-      anchorA: [0.0, -0.150],   // bottom of shin
-      anchorB: [0.0,  0.03],    // top of foot
-      lowerLimit: -0.785,  // -45°
-      upperLimit:  0.785,  //  45°
+      anchorA: [0.0, -0.150],
+      anchorB: [0.0,  0.03],
+      lowerLimit: -0.785,
+      upperLimit:  0.785,
       restAngle: 0,
-      maxTorque: 40.0,
-      kp: 40,
-      kd: 4,
+      maxTorque: 150.0,
+      kp: 150,
+      kd: 15,
+      damping: 3.0,
     },
   ],
 
@@ -127,23 +124,17 @@ export const HOPPER = {
     angvel: 0.3,
   },
 
-  // Which body's vx is the "forward velocity" signal for reward
   forwardBody: 'torso',
 
-  // obs = [torso.y, torso.angle, torso.vx, torso.vy, torso.angVel,
-  //        hip.angle, hip.angVel, knee.angle, knee.angVel,
-  //        ankle.angle, ankle.angVel, foot_ground_contact]
   obsSize: 12,
-  // actions = [hip_target, knee_target, ankle_target] in [-1,1]
   actionSize: 3,
 
-  // Default reward function config
   defaultReward: {
-    forwardVelWeight: 3.0,
-    aliveBonusWeight: 0.0,
+    forwardVelWeight: 1.5,
+    aliveBonusWeight: 1.0,
     ctrlCostWeight: 0.001,
     terminationPenalty: 0.0,
-    healthyYMin: 0.5,
-    healthyAngleMax: 0.8,
+    healthyYMin: 0.4,
+    healthyAngleMax: 1.0,
   },
 }

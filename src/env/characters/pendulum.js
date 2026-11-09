@@ -21,6 +21,7 @@
 
 export const PENDULUM = {
   name: 'pendulum',
+  controlMode: 'torque',
   gravityScale: 1.0,
 
   ground: {

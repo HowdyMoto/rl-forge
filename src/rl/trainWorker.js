@@ -101,9 +101,9 @@ function getEnvOpts(envType, charDef) {
 
   // Standard Rapier envs (Hopper, Walker2D, Acrobot)
   return {
-    controlMode: 'pd',
-    physicsHz: 120,
+    physicsHz: 240,
     policyHz: 30,
+    gravity: charDef?.gravity ?? -9.81,
     maxSteps: 1000,
   }
 }

@@ -40,7 +40,7 @@ const ENV_CONFIGS = {
     label: 'Hopper',
     desc: 'Monopod hopper · 12 obs · 3 actions',
     solvedThreshold: 1500,
-    ppoOverrides: { hiddenSizes: [64, 64], entropyCoef: 0.02, stepsPerUpdate: 2048 },
+    ppoOverrides: { hiddenSizes: [128, 128], entropyCoef: 0.02, stepsPerUpdate: 2048, normalizeRewards: false },
     tooltip: 'Physics-based locomotion (Rapier2D). A single-legged robot learns to hop forward without falling. 12D observation, 3 continuous joint targets (PD control). More challenging than CartPole — contact dynamics, sparse-ish reward, harder exploration. Solved at mean reward ≥ 1500.',
   },
   walker2d: {

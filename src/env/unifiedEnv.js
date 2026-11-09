@@ -100,6 +100,10 @@ export class UnifiedRapierEnv {
     const hasPrismatic = joints.some(j => j.type === 'prismatic')
     if (hasPrismatic) return 'velocity'  // prismatic joints use velocity motors
 
+    // Check for explicit torque mode
+    const hasTorque = joints.some(j => j.controlMode === 'torque')
+    if (hasTorque) return 'torque'
+
     // Check for PD gains
     const hasPD = joints.some(j => j.kp !== undefined || j.kd !== undefined)
     if (hasPD) return 'pd'
@@ -377,6 +381,8 @@ export class UnifiedRapierEnv {
 
     if (this.controlMode === 'pd') {
       this._stepPD(clampedActions)
+    } else if (this.controlMode === 'torque') {
+      this._stepTorque(clampedActions)
     } else {
       this._stepVelocity(clampedActions)
     }
@@ -461,6 +467,34 @@ export class UnifiedRapierEnv {
       // Re-apply prismatic forces each substep (addForce is cleared by world.step)
       for (const pf of prismaticForces) {
         pf.body.addForce({ x: pf.fx, y: pf.fy }, true)
+      }
+      this.world.step()
+    }
+  }
+
+  _stepTorque(actions) {
+    const def = this.def
+    let ai = 0
+
+    // Pre-compute agent torques for each actuated joint
+    const jointInfos = []
+    def.joints.forEach((jointDef) => {
+      if ((jointDef.maxTorque ?? 0) <= 0) return  // passive joint, no action
+      const action = actions[ai++]
+      const bodyA = this.bodies[jointDef.bodyA]
+      const bodyB = this.bodies[jointDef.bodyB]
+      const agentTorque = action * (jointDef.maxTorque ?? 10)
+      const damping = jointDef.damping ?? 0
+      jointInfos.push({ bodyA, bodyB, agentTorque, damping })
+    })
+
+    for (let i = 0; i < this.substeps; i++) {
+      for (const ji of jointInfos) {
+        // Joint damping resists angular velocity (like MuJoCo joint damping)
+        const relAngVel = ji.bodyB.angvel() - ji.bodyA.angvel()
+        const torque = ji.agentTorque - ji.damping * relAngVel
+        ji.bodyB.addTorque(torque, true)
+        ji.bodyA.addTorque(-torque, true)
       }
       this.world.step()
     }

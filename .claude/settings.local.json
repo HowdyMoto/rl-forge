@@ -21,7 +21,19 @@
       "Bash(node -e \"console.log\\(Buffer.from\\(''6e65772055524c28277261706965725f7761736d32645f62672e7761736d272c20223c64656c657465643e22293b'',''hex''\\).toString\\(\\)\\)\")",
       "Read(//d/tmp/**)",
       "Bash(curl -sL https://registry.npmjs.org/@dimforge/rapier2d-compat/-/rapier2d-compat-0.14.0.tgz)",
-      "Bash(tar xzf:*)"
+      "Bash(tar xzf:*)",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(sed -i \"s/rgba\\(255,255,255,0\\\\.2\\)/rgba\\(255,255,255,0.55\\)/g\" \"$f\")",
+      "Bash(sed -i \"s/rgba\\(255,255,255,0\\\\.25\\)/rgba\\(255,255,255,0.55\\)/g\" \"$f\")",
+      "Bash(sed -i \"s/rgba\\(255,255,255,0\\\\.3\\)/rgba\\(255,255,255,0.6\\)/g\" \"$f\")",
+      "Bash(sed -i \"s/rgba\\(255,255,255,0\\\\.35\\)/rgba\\(255,255,255,0.65\\)/g\" \"$f\")",
+      "Bash(sed -i \"s/rgba\\(255,255,255,0\\\\.4\\)/rgba\\(255,255,255,0.7\\)/g\" \"$f\")",
+      "Bash(sed -i \"s/rgba\\(255,255,255,0\\\\.45\\)/rgba\\(255,255,255,0.75\\)/g\" \"$f\")",
+      "Bash(sed -i \"s/rgba\\(255,255,255,0\\\\.5\\)/rgba\\(255,255,255,0.75\\)/g\" \"$f\")",
+      "Bash(f=src/app/routes/TestMode.jsx)",
+      "Bash(while read:*)",
+      "Bash(do sed:*)"
     ]
   }
 }
